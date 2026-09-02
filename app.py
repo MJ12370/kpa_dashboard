@@ -6,7 +6,7 @@ import glob
 import plotly.express as px
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="제지산업 수출입통계 대시보드", layout="wide")
+st.set_page_config(page_title="원료 수출입 통관실적", layout="wide")
 
 # 1. 파일 경로 탐색
 if os.path.exists(r"D:\kita"):
@@ -60,7 +60,7 @@ with col_cat:
     selected_cat = st.radio("📂 **대분류 품목**", available_cats, horizontal=True)
 
 with col_trade:
-    trade_type = st.radio("🔄 **수출 / 수입 구분**", ["수출", "수입", "수출+수입 동시조회"], horizontal=True)
+    trade_type = st.radio("🔄 **수출 / 수입 구분**", ["수출", "수입", "수출+수입"], horizontal=True)
 
 with col_period:
     period_type = st.radio("📅 **집계 주기**", ["연간 합계 (YoY)", "월별 실적 (MoM)"], horizontal=True)
