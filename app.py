@@ -33,7 +33,7 @@ def load_data(file_path):
     if '수입실적(톤)' not in df.columns and '수입중량(kg)' in df.columns:
         df['수입실적(톤)'] = df['수입중량(kg)'] / 1000.0
         
-    # 기준년월에서 숫자만 정밀 추출 (소수점, 하이픈 등 처리)
+    # 기준년월에서 숫자만 정밀 추출
     raw_date = df['기준년월'].astype(str).str.replace(r'\.0$', '', regex=True)
     clean_digits = raw_date.str.replace(r'[^0-9]', '', regex=True)
     
@@ -54,7 +54,6 @@ col_cat, col_trade, col_period = st.columns([1.5, 1, 1.2])
 
 with col_cat:
     raw_cats = df['대분류'].dropna().unique().tolist()
-    # 대분류에서 '폐신문', '폐신문지' 제외
     raw_cats = [c for c in raw_cats if c not in ['폐신문', '폐신문지']]
     
     priority_order = ['폐지', '골판지원지', '펄프']
@@ -122,6 +121,13 @@ if "연간" in period_type:
     last_year_months = sorted([m for m in filtered_df[filtered_df['기준연도'] == last_year]['월'].unique() if 1 <= m <= 12])
     is_partial = (len(last_year_months) < 12 and len(last_year_months) > 0)
     
+    if is_partial:
+        start_m = last_year_months[0]
+        end_m = last_year_months[-1]
+        partial_label = f"{last_year}.{start_m}-{end_m}"
+    else:
+        partial_label = last_year
+
     # 1) 전체 월 연간 실적 피벗
     pivot_full = filtered_df.pivot_table(
         index='기준연도',
@@ -132,10 +138,6 @@ if "연간" in period_type:
 
     # 2) 동일 기간(1~7월 등) 피벗
     if is_partial:
-        start_m = last_year_months[0]
-        end_m = last_year_months[-1]
-        partial_label = f"{last_year}.{start_m}-{end_m}"
-        
         df_same_period = filtered_df[filtered_df['월'].isin(last_year_months)]
         pivot_partial = df_same_period.pivot_table(
             index='기준연도',
@@ -144,7 +146,6 @@ if "연간" in period_type:
             aggfunc='sum'
         ).fillna(0)
     else:
-        partial_label = last_year
         pivot_partial = pivot_full.copy()
 
     # 품목 컬럼 순서 정리
@@ -167,37 +168,22 @@ if "연간" in period_type:
     pivot_diff = pivot_full.diff()
     pivot_pct = pivot_full.pct_change() * 100.0
 
-    # 미완료 연도인 경우, 직전 연도 동기간(예: 2025.1-7) 행을 표에 추가하여 투명하게 검산 가능하도록 구성
+    # 마지막 연도(2026.1-7)에 대한 직전 연도 동기간(2025.1-7) 대비 증감 연산
     if is_partial and len(valid_years) >= 2:
         prev_year = valid_years[-2]
-        prev_partial_label = f"{prev_year}.{start_m}-{end_m}"
-        
-        # 전년 동기간 실적
         prev_ytd_series = pivot_partial.loc[prev_year] if prev_year in pivot_partial.index else pd.Series(0, index=pivot_full.columns)
         curr_ytd_series = pivot_partial.loc[last_year]
 
-        # 2026.1-7의 증감량 및 증감률 = (2026.1-7) - (2025.1-7)
         diff_ytd = curr_ytd_series - prev_ytd_series
         pct_ytd = (diff_ytd / prev_ytd_series.replace(0, np.nan)) * 100.0
 
-        # 기존 마지막 연도 행 라벨 변경 및 수치 갱신
+        # 라벨만 2026.1-7로 교체하고 YTD 증감값 적용 (2025.1-7 행은 표에 추가하지 않음)
         pivot_full = pivot_full.rename(index={last_year: partial_label})
         pivot_diff = pivot_diff.rename(index={last_year: partial_label})
         pivot_pct = pivot_pct.rename(index={last_year: partial_label})
 
         pivot_diff.loc[partial_label] = diff_ytd
         pivot_pct.loc[partial_label] = pct_ytd
-
-        # 전년 동기간(2025.1-7) 행을 2026.1-7 바로 위에 삽입
-        pivot_full.loc[prev_partial_label] = prev_ytd_series
-        pivot_diff.loc[prev_partial_label] = np.nan  # 비교 기준행이므로 증감 공란
-        pivot_pct.loc[prev_partial_label] = np.nan
-
-        # 행 순서 정렬: 과거연도 -> 2025 -> 2025.1-7 -> 2026.1-7
-        idx_order = [y for y in valid_years[:-1]] + [prev_partial_label, partial_label]
-        pivot_full = pivot_full.reindex(idx_order)
-        pivot_diff = pivot_diff.reindex(idx_order)
-        pivot_pct = pivot_pct.reindex(idx_order)
 
     pivot_pct = pivot_pct.replace([np.inf, -np.inf], np.nan)
     pivot_base = pivot_full
@@ -275,7 +261,7 @@ with chart_col1:
     chart_line_df = pivot_base[item_cols].reset_index()
     chart_line_df.rename(columns={chart_line_df.columns[0]: date_index_col}, inplace=True)
     
-    # 월별 실적일 때 점이 한곳에 뭉치지 않도록 YYYY-MM 형태의 정식 시계열 날짜로 변환
+    # 월별 실적일 때 시계열 고르게 펼치기
     if "월별" in period_type:
         chart_line_df['날짜'] = pd.to_datetime(chart_line_df[date_index_col].astype(str).str.replace('.', '-') + '-01')
         x_col = '날짜'
@@ -297,7 +283,6 @@ with chart_col1:
         markers=True
     )
     
-    # 월별 조회 시 가로축 날짜 포맷 지정
     if "월별" in period_type:
         fig_line.update_xaxes(dtick="M3", tickformat="%Y-%m")
 
@@ -313,7 +298,6 @@ with chart_col2:
     st.markdown("##### 🏛️ 합계 실적 및 증감량 (톤)")
     fig_bar = go.Figure()
     
-    # x축 라벨 통일
     if "월별" in period_type:
         bar_x = pd.to_datetime(pivot_base.index.astype(str).str.replace('.', '-') + '-01')
     else:
