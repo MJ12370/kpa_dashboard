@@ -215,6 +215,7 @@ if trade_type == "수출+수입":
     format_dict = {col: (lambda v, t=col[1]: format_values(v, t)) for col in pivot_final.columns}
     styled_table = pivot_final.style.format(format_dict).map(apply_styles)
     st.dataframe(styled_table, use_container_width=True, height=450)
+    st.caption("※ 자료출처 : 통계청")
 
     # 수출 vs 수입 비교 차트
     st.write("---")
@@ -397,6 +398,7 @@ else:
     format_dict = {col: (lambda v, t=col[1]: format_values(v, t)) for col in pivot_final.columns}
     styled_table = pivot_final.style.format(format_dict).map(apply_styles)
     st.dataframe(styled_table, use_container_width=True, height=450)
+    st.caption("※ 자료출처 : 통계청")
 
     st.write("---")
     st.markdown(f"### 📊 {selected_cat} {country_title_label} {trade_type} 추이 차트")
