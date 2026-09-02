@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 
 st.set_page_config(page_title="제지산업 수출입통계 대시보드", layout="wide")
 
-# 1. 파일 경로 자동 탐색
+# 1. 파일 경로 탐색
 if os.path.exists(r"D:\kita"):
     DATA_DIR = r"D:\kita"
 else:
@@ -46,7 +46,6 @@ col_cat, col_trade, col_period = st.columns([1.5, 1, 1.2])
 
 with col_cat:
     raw_cats = df['대분류'].dropna().unique().tolist()
-    # 대분류에서 '폐신문' 또는 '폐신문지'가 있다면 제외
     raw_cats = [c for c in raw_cats if c not in ['폐신문', '폐신문지']]
     
     priority_order = ['폐지', '골판지원지', '펄프']
@@ -65,22 +64,51 @@ with col_trade:
 with col_period:
     period_type = st.radio("📅 **집계 주기**", ["연간 합계 (YoY)", "월별 실적 (MoM)"], horizontal=True)
 
-# 사이드바 국가 필터
-filtered_df = df[df['대분류'] == selected_cat].copy()
-all_countries = sorted(filtered_df['국가명'].dropna().unique().tolist())
-selected_countries = st.sidebar.multiselect("🌐 국가 필터 (선택 안 하면 전체 합산)", all_countries)
+target_col = '수출실적(톤)' if trade_type == '수출' else '수입실적(톤)'
+date_index_col = '기준연도' if "연간" in period_type else '기준년월'
 
-if selected_countries:
-    filtered_df = filtered_df[filtered_df['국가명'].isin(selected_countries)]
+# 3. 사이드바: 국가 필터 및 폐지 상위 10개국 선택
+filtered_df = df[df['대분류'] == selected_cat].copy()
+
+st.sidebar.markdown("### 🌐 국가별 상세 조회")
+
+# 폐지 선택 시 상위 10개국 목록 생성
+if selected_cat == '폐지':
+    top10_countries = (
+        filtered_df.groupby('국가명')[target_col]
+        .sum()
+        .sort_values(ascending=False)
+        .head(10)
+        .index.tolist()
+    )
+    country_options = ["전체 합산"] + top10_countries
+    
+    selected_country = st.sidebar.radio(
+        f"🏆 **폐지 {trade_type} 상위 10개국**",
+        country_options,
+        index=0
+    )
+    
+    if selected_country != "전체 합산":
+        filtered_df = filtered_df[filtered_df['국가명'] == selected_country]
+        country_title_label = f"[{selected_country}]"
+    else:
+        country_title_label = "[전체 국가]"
+else:
+    # 골판지, 펄프 등 다른 품목일 경우 일반 멀티셀렉트 사용
+    all_countries = sorted(filtered_df['국가명'].dropna().unique().tolist())
+    selected_countries = st.sidebar.multiselect("국가 필터 (선택 안 하면 전체 합산)", all_countries)
+    if selected_countries:
+        filtered_df = filtered_df[filtered_df['국가명'].isin(selected_countries)]
+        country_title_label = f"[{', '.join(selected_countries)}]"
+    else:
+        country_title_label = "[전체 국가]"
 
 if filtered_df.empty:
     st.warning("선택된 조건에 해당하는 데이터가 없습니다.")
     st.stop()
 
-target_col = '수출실적(톤)' if trade_type == '수출' else '수입실적(톤)'
-date_index_col = '기준연도' if "연간" in period_type else '기준년월'
-
-# 3. 피벗 및 증감 계산
+# 4. 피벗 및 증감 계산
 pivot_base = filtered_df.pivot_table(
     index=date_index_col,
     columns='중분류',
@@ -88,7 +116,7 @@ pivot_base = filtered_df.pivot_table(
     aggfunc='sum'
 ).fillna(0)
 
-# 폐지 선택 시 사용자 지정 순서 적용 (폐골판지 -> 폐신문지 -> 고급폐지 -> 기타폐지)
+# 폐지 선택 시 사용자 지정 순서 (폐골판지 -> 폐신문지 -> 고급폐지 -> 기타폐지)
 if selected_cat == '폐지':
     custom_waste_order = ['폐골판지', '폐신문지', '고급폐지', '기타폐지']
     ordered_cols = [c for c in custom_waste_order if c in pivot_base.columns]
@@ -100,7 +128,7 @@ pivot_diff = pivot_base.diff()
 pivot_pct = pivot_base.pct_change() * 100.0
 pivot_pct = pivot_pct.replace([np.inf, -np.inf], np.nan)
 
-# 4. 2중 헤더 테이블 구성
+# 5. 2중 헤더 테이블 구성
 final_data = {}
 for col in pivot_base.columns:
     final_data[(col, col if col != '합계' else '합계')] = pivot_base[col]
@@ -110,9 +138,9 @@ for col in pivot_base.columns:
 pivot_final = pd.DataFrame(final_data, index=pivot_base.index)
 pivot_final = pivot_final.sort_index(ascending=True)
 
-# 5. 서식 적용 및 테이블 출력
+# 6. 메인 표 출력
 display_cat_name = "골판지" if selected_cat == "골판지원지" else selected_cat
-st.markdown(f"### 📋 {display_cat_name} {trade_type}실적 ({period_type})")
+st.markdown(f"### 📋 {display_cat_name} {country_title_label} {trade_type}실적 ({period_type})")
 st.caption("(단위 : 톤)")
 
 def format_values(val, col_type):
@@ -139,16 +167,16 @@ styled_table = (
     .map(apply_styles)
 )
 
-st.dataframe(styled_table, use_container_width=True, height=380)
+st.dataframe(styled_table, use_container_width=True, height=450)
 
-# 6. 시각화 그래프 섹션
+# 7. 차트 섹션 (선택된 국가의 품목별 추이 및 총량)
 st.write("---")
-st.markdown(f"### 📊 {display_cat_name} {trade_type} 실적 추이")
+st.markdown(f"### 📊 {display_cat_name} {country_title_label} {trade_type} 추이 차트")
 
 chart_col1, chart_col2 = st.columns(2)
 
 with chart_col1:
-    st.markdown("##### 📈 품목별 실적 (톤)")
+    st.markdown("##### 📈 세부 품목별 실적 (톤)")
     item_cols = [c for c in pivot_base.columns if c != '합계']
     chart_line_df = pivot_base[item_cols].reset_index().melt(
         id_vars=date_index_col, 
@@ -172,7 +200,7 @@ with chart_col1:
     st.plotly_chart(fig_line, use_container_width=True)
 
 with chart_col2:
-    st.markdown("##### 🏛️ 전체 합계 실적 및 증감량 (톤)")
+    st.markdown("##### 🏛️ 합계 실적 및 증감량 (톤)")
     fig_bar = go.Figure()
     fig_bar.add_trace(go.Bar(
         x=pivot_base.index, y=pivot_base['합계'], name='총 실적(톤)', marker_color='#4A90E2'
@@ -187,30 +215,3 @@ with chart_col2:
         yaxis2=dict(title="증감량(톤)", overlaying='y', side='right', showgrid=False, tickformat=",.0f")
     )
     st.plotly_chart(fig_bar, use_container_width=True)
-
-# 7. 폐지 선택 시 국가별 Top 10 그래프 추가
-if selected_cat == '폐지':
-    st.write("---")
-    st.markdown(f"### 🌍 폐지 {trade_type} 실적 상위 10개국 (전체 기간 합산 기준)")
-    
-    # 국가 필터 적용 전 원본 데이터에서 폐지 데이터만 추출하여 전체 국가 중 Top 10 계산
-    top10_base_df = df[df['대분류'] == '폐지']
-    country_sum_df = top10_base_df.groupby('국가명')[target_col].sum().reset_index()
-    country_sum_df = country_sum_df.sort_values(by=target_col, ascending=False).head(10)
-    
-    fig_top10 = px.bar(
-        country_sum_df,
-        x='국가명',
-        y=target_col,
-        text=target_col,
-        color='국가명',
-        color_discrete_sequence=px.colors.qualitative.Pastel
-    )
-    # 막대 위에 수치 표시하고 y축 눈금은 숨겨서 깔끔하게 배치
-    fig_top10.update_traces(texttemplate='%{text:,.0f}', textposition='outside', showlegend=False)
-    fig_top10.update_layout(
-        margin=dict(l=20, r=20, t=30, b=20),
-        yaxis=dict(showticklabels=False, title=""),
-        xaxis=dict(title="")
-    )
-    st.plotly_chart(fig_top10, use_container_width=True)
