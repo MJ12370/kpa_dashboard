@@ -3,10 +3,11 @@ import pandas as pd
 import numpy as np
 import os
 import glob
+import re
 import plotly.express as px
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="원료 수출입 통관실적", layout="wide")
+st.set_page_config(page_title="제지산업 수출입통계 대시보드", layout="wide")
 
 # 1. 파일 경로 탐색
 if os.path.exists(r"D:\kita"):
@@ -31,9 +32,14 @@ def load_data(file_path):
     if '수입실적(톤)' not in df.columns and '수입중량(kg)' in df.columns:
         df['수입실적(톤)'] = df['수입중량(kg)'] / 1000.0
         
-    df['기준년월'] = df['기준년월'].astype(str).str.strip()
-    df['기준연도'] = df['기준년월'].str.slice(0, 4)
-    df['월'] = df['기준년월'].str.slice(4, 6)
+    # 기준년월에서 숫자만 추출
+    raw_date = df['기준년월'].astype(str).str.replace(r'\.0$', '', regex=True)
+    clean_digits = raw_date.str.replace(r'[^0-9]', '', regex=True)
+    
+    df['기준연도'] = clean_digits.str.slice(0, 4)
+    month_series = pd.to_numeric(clean_digits.str.slice(4, 6), errors='coerce').fillna(0).astype(int)
+    df['월'] = month_series
+    df['기준년월'] = df['기준연도'] + "." + df['월'].apply(lambda x: f"{x:02d}")
     
     if '중분류' not in df.columns:
         df['중분류'] = df['품목명']
@@ -105,22 +111,24 @@ if filtered_df.empty:
     st.warning("선택된 조건에 해당하는 데이터가 없습니다.")
     st.stop()
 
-# 4. 피벗 및 동일 기간(YTD) 증감 계산
+# 4. 피벗 및 정확한 증감량/증감률 계산 (YTD 정밀 반영)
 if "연간" in period_type:
-    # 전체 데이터 기준 마지막 연도와 해당 연도의 포함 월 파악
-    years = sorted(df['기준연도'].unique())
-    last_year = years[-1]
-    last_year_months = sorted(df[df['기준연도'] == last_year]['월'].unique())
-    is_partial = len(last_year_months) < 12
+    # 필터링된 실제 데이터 기준 연도 목록
+    valid_years = sorted([y for y in filtered_df['기준연도'].unique() if len(str(y)) == 4 and str(y).isdigit()])
+    last_year = valid_years[-1]
+    
+    # 마지막 연도의 실제 데이터 보유 월 목록
+    last_year_months = sorted([m for m in filtered_df[filtered_df['기준연도'] == last_year]['월'].unique() if 1 <= m <= 12])
+    is_partial = (len(last_year_months) < 12 and len(last_year_months) > 0)
     
     if is_partial:
-        start_m = int(last_year_months[0])
-        end_m = int(last_year_months[-1])
+        start_m = last_year_months[0]
+        end_m = last_year_months[-1]
         partial_label = f"{last_year}.{start_m}-{end_m}"
     else:
         partial_label = last_year
 
-    # 기본 연도별 피벗 테이블 (전체 월 기준 합계)
+    # 1) 전체 월 연간 실적 피벗 테이블
     pivot_full = filtered_df.pivot_table(
         index='기준연도',
         columns='중분류',
@@ -128,8 +136,8 @@ if "연간" in period_type:
         aggfunc='sum'
     ).fillna(0)
 
-    # 마지막 연도와 동일한 월 범위만 필터링한 피벗 테이블
-    if is_partial and len(years) >= 2:
+    # 2) 동일 기간(1~7월 등)에 대해서만 뽑은 피벗 테이블
+    if is_partial:
         df_same_period = filtered_df[filtered_df['월'].isin(last_year_months)]
         pivot_partial = df_same_period.pivot_table(
             index='기준연도',
@@ -138,37 +146,48 @@ if "연간" in period_type:
             aggfunc='sum'
         ).fillna(0)
     else:
-        pivot_partial = pivot_full
+        pivot_partial = pivot_full.copy()
 
-    # 폐지 선택 시 품목 정렬
+    # 품목 컬럼 순서 맞추기
+    all_cols = sorted(pivot_full.columns.tolist())
     if selected_cat == '폐지':
         custom_waste_order = ['폐골판지', '폐신문지', '고급폐지', '기타폐지']
-        ordered_cols = [c for c in custom_waste_order if c in pivot_full.columns]
-        remaining_cols = [c for c in pivot_full.columns if c not in custom_waste_order]
-        target_item_cols = ordered_cols + remaining_cols
-        pivot_full = pivot_full[target_item_cols]
-        pivot_partial = pivot_partial[target_item_cols]
+        ordered_cols = [c for c in custom_waste_order if c in all_cols]
+        remaining_cols = [c for c in all_cols if c not in custom_waste_order]
+        target_cols = ordered_cols + remaining_cols
+    else:
+        target_cols = all_cols
 
+    pivot_full = pivot_full.reindex(columns=target_cols, fill_value=0)
+    pivot_partial = pivot_partial.reindex(columns=target_cols, fill_value=0)
+
+    # 합계 컬럼 추가
     pivot_full['합계'] = pivot_full.sum(axis=1)
     pivot_partial['합계'] = pivot_partial.sum(axis=1)
 
-    # 증감량 및 증감률 계산
+    # 기본 전년 대비 증감량 / 증감률
     pivot_diff = pivot_full.diff()
     pivot_pct = pivot_full.pct_change() * 100.0
 
-    # 마지막 미완료 연도는 직전 연도의 '동일 기간(YTD)'과 비교하여 증감값 덮어쓰기
-    if is_partial and len(years) >= 2:
-        prev_year = years[-2]
-        if prev_year in pivot_partial.index and last_year in pivot_partial.index:
-            ytd_diff = pivot_partial.loc[last_year] - pivot_partial.loc[prev_year]
-            ytd_pct = (ytd_diff / pivot_partial.loc[prev_year].replace(0, np.nan)) * 100.0
-            
-            pivot_diff.loc[last_year] = ytd_diff
-            pivot_pct.loc[last_year] = ytd_pct
+    # 마지막 미완료 연도(예: 2026.1-7)에 대한 YTD 비교값 정확히 덮어쓰기
+    if is_partial and len(valid_years) >= 2:
+        prev_year = valid_years[-2]
+        
+        # 마지막 연도(1~7월) - 직전 연도(1~7월)
+        curr_ytd = pivot_partial.loc[last_year]
+        prev_ytd = pivot_partial.loc[prev_year] if prev_year in pivot_partial.index else pd.Series(0, index=target_cols + ['합계'])
+        
+        diff_ytd = curr_ytd - prev_ytd
+        
+        # 증감률 = (금년 1~7월 - 전년 1~7월) / 전년 1~7월 * 100
+        pct_ytd = (diff_ytd / prev_ytd.replace(0, np.nan)) * 100.0
+
+        pivot_diff.loc[last_year] = diff_ytd
+        pivot_pct.loc[last_year] = pct_ytd
 
     pivot_pct = pivot_pct.replace([np.inf, -np.inf], np.nan)
 
-    # 행 라벨 변경 (예: 2026 -> 2026.1-7)
+    # 행 이름 변경 (2026 -> 2026.1-7)
     if is_partial and last_year in pivot_full.index:
         pivot_full = pivot_full.rename(index={last_year: partial_label})
         pivot_diff = pivot_diff.rename(index={last_year: partial_label})
@@ -248,7 +267,6 @@ with chart_col1:
     st.markdown("##### 📈 세부 품목별 실적 (톤)")
     item_cols = [c for c in pivot_base.columns if c != '합계']
     chart_line_df = pivot_base[item_cols].reset_index()
-    # 인덱스 컬럼명 명시
     chart_line_df.rename(columns={chart_line_df.columns[0]: date_index_col}, inplace=True)
     chart_line_df = chart_line_df.melt(
         id_vars=date_index_col, 
