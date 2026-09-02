@@ -65,10 +65,10 @@ with col_trade:
 with col_period:
     period_type = st.radio("📅 **집계 주기**", ["연간 합계 (YoY)", "월별 실적 (MoM)"], horizontal=True)
 
-# 3. 세부 품목 선택창 (수출+수입 동시조회일 때 활성화)
+# 3. 세부 품목 선택창 (수출+수입일 때 활성화)
 waste_items = ['폐골판지', '폐신문지', '고급폐지', '기타폐지']
 
-if trade_type == "수출+수입 동시조회":
+if trade_type == "수출+수입":
     if selected_cat == '폐지':
         sub_options = ["폐골판지", "폐신문지", "고급폐지", "기타폐지", "전체 합계"]
     else:
@@ -85,9 +85,9 @@ filtered_df = df[df['대분류'] == selected_cat].copy()
 st.sidebar.markdown("### 🌐 국가별 상세 조회")
 
 # -------------------------------------------------------------
-# CASE A: 수출+수입 동시조회 모드
+# CASE A: 수출+수입 모드
 # -------------------------------------------------------------
-if trade_type == "수출+수입 동시조회":
+if trade_type == "수출+수입":
     if chosen_sub_item and chosen_sub_item != "전체 합계":
         filtered_df = filtered_df[filtered_df['중분류'] == chosen_sub_item].copy()
         display_name = chosen_sub_item
