@@ -48,15 +48,14 @@ def load_data(file_path):
 
 df = load_data(latest_file)
 
-# 2. 상단 필터 UI (대분류 품목 -> 수출/수입 -> 세부품목(종합선택시) -> 집계주기)
+# 2. 상단 필터 UI
 raw_cats = df['대분류'].dropna().unique().tolist()
 raw_cats = [c for c in raw_cats if c not in ['폐신문', '폐신문지']]
 priority_order = ['폐지', '골판지원지', '펄프']
 available_cats = [c for c in priority_order if c in raw_cats] + [c for c in raw_cats if c not in priority_order]
 
-trade_modes = ["수출", "수입", "수출+수입 (수지분석)"]
+trade_modes = ["수출", "수입", "수출+수입 동시조회"]
 
-# 레이아웃 컬럼 배치
 c_cat, c_trade, c_sub, c_period = st.columns([1.1, 1.4, 1.4, 1.1])
 
 with c_cat:
@@ -65,11 +64,10 @@ with c_cat:
 with c_trade:
     trade_type = st.radio("🔄 **수출 / 수입 구분**", trade_modes, horizontal=True)
 
-# 폐지 세부 품목 목록
 waste_items = ['폐골판지', '폐신문지', '고급폐지', '기타폐지']
 
 with c_sub:
-    if trade_type == "수출+수입 (수지분석)":
+    if trade_type == "수출+수입 동시조회":
         if selected_cat == '폐지':
             sub_options = ["전체 합계"] + waste_items
             chosen_sub_item = st.radio("📑 **세부 품목 선택**", sub_options, horizontal=True)
@@ -78,7 +76,7 @@ with c_sub:
             sub_options = ["전체 합계"] + other_sub_items
             chosen_sub_item = st.radio("📑 **세부 품목 선택**", sub_options, horizontal=True)
     else:
-        st.write("") # 빈 공간 유지
+        st.write("")
         chosen_sub_item = None
 
 with c_period:
@@ -86,14 +84,12 @@ with c_period:
 
 # 3. 사이드바 및 데이터 필터링
 filtered_df = df[df['대분류'] == selected_cat].copy()
-
 st.sidebar.markdown("### 🌐 국가별 상세 조회")
 
 # -------------------------------------------------------------
-# CASE A: 수출+수입 종합 수지분석 모드 (품목 자유 선택)
+# CASE A: 수출+수입 동시조회 모드 (순수출/총교역량 제거)
 # -------------------------------------------------------------
-if trade_type == "수출+수입 (수지분석)":
-    # 특정 세부 품목 선택 시 필터링 (전체 합계가 아닌 경우)
+if trade_type == "수출+수입 동시조회":
     if chosen_sub_item and chosen_sub_item != "전체 합계":
         filtered_df = filtered_df[filtered_df['중분류'] == chosen_sub_item].copy()
         display_sub_name = chosen_sub_item
@@ -127,9 +123,6 @@ if trade_type == "수출+수입 (수지분석)":
         st.warning("선택된 조건에 해당하는 데이터가 없습니다.")
         st.stop()
 
-    date_col = '기준연도' if "연간" in period_type else '기준년월'
-
-    # 연간 YTD 또는 월별 피벗 집계
     if "연간" in period_type:
         valid_years = sorted([y for y in filtered_df['기준연도'].unique() if len(str(y)) == 4 and str(y).isdigit()])
         last_year = valid_years[-1]
@@ -157,21 +150,15 @@ if trade_type == "수출+수입 (수지분석)":
         else:
             pivot_partial = pivot_full.copy()
 
-        pivot_full['순수출(톤)'] = pivot_full['수출실적(톤)'] - pivot_full['수입실적(톤)']
-        pivot_full['총교역량(톤)'] = pivot_full['수출실적(톤)'] + pivot_full['수입실적(톤)']
-
-        pivot_partial['순수출(톤)'] = pivot_partial['수출실적(톤)'] - pivot_partial['수입실적(톤)']
-        pivot_partial['총교역량(톤)'] = pivot_partial['수출실적(톤)'] + pivot_partial['수입실적(톤)']
-
         pivot_diff = pivot_full.diff()
-        pivot_pct = pivot_full[['수출실적(톤)', '수입실적(톤)', '총교역량(톤)']].pct_change() * 100.0
+        pivot_pct = pivot_full.pct_change() * 100.0
 
         if is_partial and len(valid_years) >= 2:
             prev_year = valid_years[-2]
             curr_ytd = pivot_partial.loc[last_year]
             prev_ytd = pivot_partial.loc[prev_year] if prev_year in pivot_partial.index else pd.Series(0, index=pivot_partial.columns)
             diff_ytd = curr_ytd - prev_ytd
-            pct_ytd = (diff_ytd[['수출실적(톤)', '수입실적(톤)', '총교역량(톤)']] / prev_ytd[['수출실적(톤)', '수입실적(톤)', '총교역량(톤)']].replace(0, np.nan)) * 100.0
+            pct_ytd = (diff_ytd / prev_ytd.replace(0, np.nan)) * 100.0
 
             pivot_full = pivot_full.rename(index={last_year: partial_label})
             pivot_diff = pivot_diff.rename(index={last_year: partial_label})
@@ -190,29 +177,23 @@ if trade_type == "수출+수입 (수지분석)":
             values=['수출실적(톤)', '수입실적(톤)'],
             aggfunc='sum'
         ).fillna(0)
-        pivot_base['순수출(톤)'] = pivot_base['수출실적(톤)'] - pivot_base['수입실적(톤)']
-        pivot_base['총교역량(톤)'] = pivot_base['수출실적(톤)'] + pivot_base['수입실적(톤)']
         pivot_diff = pivot_base.diff()
-        pivot_pct = pivot_base[['수출실적(톤)', '수입실적(톤)', '총교역량(톤)']].pct_change() * 100.0
+        pivot_pct = pivot_base.pct_change() * 100.0
         pivot_pct = pivot_pct.replace([np.inf, -np.inf], np.nan)
         date_index_col = '기준년월'
 
+    # 2중 헤더: 수출 3열, 수입 3열만 구성
     final_data = {
         ('수출', '실적'): pivot_base['수출실적(톤)'],
         ('수출', '증감량'): pivot_diff['수출실적(톤)'],
         ('수출', '증감률'): pivot_pct['수출실적(톤)'],
         ('수입', '실적'): pivot_base['수입실적(톤)'],
         ('수입', '증감량'): pivot_diff['수입실적(톤)'],
-        ('수입', '증감률'): pivot_pct['수입실적(톤)'],
-        ('순수출 (수출-수입)', '실적'): pivot_base['순수출(톤)'],
-        ('순수출 (수출-수입)', '증감량'): pivot_diff['순수출(톤)'],
-        ('총교역량 (수출+수입)', '실적'): pivot_base['총교역량(톤)'],
-        ('총교역량 (수출+수입)', '증감량'): pivot_diff['총교역량(톤)'],
-        ('총교역량 (수출+수입)', '증감률'): pivot_pct['총교역량(톤)']
+        ('수입', '증감률'): pivot_pct['수입실적(톤)']
     }
     pivot_final = pd.DataFrame(final_data, index=pivot_base.index)
 
-    st.markdown(f"### 📋 {display_sub_name} {country_title_label} 수출/수입 종합 실적 ({period_type})")
+    st.markdown(f"### 📋 {display_sub_name} {country_title_label} 수출/수입 실적 ({period_type})")
     st.caption("(단위 : 톤)")
 
     def format_values(val, col_type):
@@ -233,47 +214,29 @@ if trade_type == "수출+수입 (수지분석)":
     styled_table = pivot_final.style.format(format_dict).map(apply_styles)
     st.dataframe(styled_table, use_container_width=True, height=450)
 
+    # 수출 vs 수입 추이 차트
     st.write("---")
-    st.markdown(f"### 📊 {display_sub_name} {country_title_label} 교역 추이")
-    c1, c2 = st.columns(2)
+    st.markdown(f"### 📊 {display_sub_name} {country_title_label} 수출 vs 수입 추이 차트")
 
-    with c1:
-        st.markdown("##### 📈 수출 vs 수입 추이 (톤)")
-        fig_sub_line = go.Figure()
-        
-        if "월별" in period_type:
-            chart_x = pd.to_datetime(pivot_base.index.astype(str).str.replace('.', '-') + '-01')
-        else:
-            chart_x = pivot_base.index.astype(str)
+    if "월별" in period_type:
+        chart_x = pd.to_datetime(pivot_base.index.astype(str).str.replace('.', '-') + '-01')
+    else:
+        chart_x = pivot_base.index.astype(str)
 
-        fig_sub_line.add_trace(go.Scatter(x=chart_x, y=pivot_base['수출실적(톤)'], name='수출실적', mode='lines+markers', line=dict(color='#2E7D32', width=2)))
-        fig_sub_line.add_trace(go.Scatter(x=chart_x, y=pivot_base['수입실적(톤)'], name='수입실적', mode='lines+markers', line=dict(color='#C62828', width=2)))
-        
-        if "월별" in period_type:
-            fig_sub_line.update_xaxes(dtick="M3", tickformat="%Y-%m")
+    fig_dual_line = go.Figure()
+    fig_dual_line.add_trace(go.Scatter(x=chart_x, y=pivot_base['수출실적(톤)'], name='수출실적(톤)', mode='lines+markers', line=dict(color='#2E7D32', width=2.5)))
+    fig_dual_line.add_trace(go.Scatter(x=chart_x, y=pivot_base['수입실적(톤)'], name='수입실적(톤)', mode='lines+markers', line=dict(color='#C62828', width=2.5)))
 
-        fig_sub_line.update_layout(
-            margin=dict(l=20, r=20, t=30, b=20),
-            hovermode="x unified",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            yaxis=dict(title="실적(톤)", tickformat=",.0f")
-        )
-        st.plotly_chart(fig_sub_line, use_container_width=True)
+    if "월별" in period_type:
+        fig_dual_line.update_xaxes(dtick="M3", tickformat="%Y-%m")
 
-    with c2:
-        st.markdown("##### ⚖️ 순수출 (수출 - 수입) 추이 (톤)")
-        colors = ['#2E7D32' if val >= 0 else '#C62828' for val in pivot_base['순수출(톤)']]
-        fig_net = go.Figure()
-        fig_net.add_trace(go.Bar(x=chart_x, y=pivot_base['순수출(톤)'], marker_color=colors, name='순수출'))
-        
-        if "월별" in period_type:
-            fig_net.update_xaxes(dtick="M3", tickformat="%Y-%m")
-
-        fig_net.update_layout(
-            margin=dict(l=20, r=20, t=30, b=20),
-            yaxis=dict(title="순수출(톤)", tickformat=",.0f")
-        )
-        st.plotly_chart(fig_net, use_container_width=True)
+    fig_dual_line.update_layout(
+        margin=dict(l=20, r=20, t=30, b=20),
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        yaxis=dict(title="실적(톤)", tickformat=",.0f")
+    )
+    st.plotly_chart(fig_dual_line, use_container_width=True)
 
 # -------------------------------------------------------------
 # CASE B: 단일 수출 또는 수입 모드
@@ -464,9 +427,9 @@ else:
         fig_line.update_layout(
             margin=dict(l=20, r=20, t=30, b=20),
             hovermode="x unified",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            yaxis=dict(title="실적(톤)", tickformat=",.0f")
         )
-        fig_line.update_yaxes(tickformat=",.0f")
         st.plotly_chart(fig_line, use_container_width=True)
 
     with chart_col2:
