@@ -54,6 +54,7 @@ col_cat, col_trade, col_period = st.columns([1.5, 1, 1.2])
 
 with col_cat:
     raw_cats = df['대분류'].dropna().unique().tolist()
+    # 대분류에서 '폐신문', '폐신문지' 제외
     raw_cats = [c for c in raw_cats if c not in ['폐신문', '폐신문지']]
     
     priority_order = ['폐지', '골판지원지', '펄프']
@@ -73,12 +74,14 @@ with col_period:
 
 target_col = '수출실적(톤)' if trade_type == '수출' else '수입실적(톤)'
 
-# 3. 사이드바: 국가 필터 및 폐지 상위 10개국 선택
+# 3. 사이드바: 국가 필터 및 폐지 상위 10개국 + 기타 선택 기능
 filtered_df = df[df['대분류'] == selected_cat].copy()
 
 st.sidebar.markdown("### 🌐 국가별 상세 조회")
 
 if selected_cat == '폐지':
+    # 전체 국가 목록 및 상위 10개국 계산
+    all_waste_countries = sorted(filtered_df['국가명'].dropna().unique().tolist())
     top10_countries = (
         filtered_df.groupby('국가명')[target_col]
         .sum()
@@ -86,20 +89,30 @@ if selected_cat == '폐지':
         .head(10)
         .index.tolist()
     )
-    country_options = ["전체 합산"] + top10_countries
+    # 기타 국가 목록 (Top 10 제외)
+    other_countries = [c for c in all_waste_countries if c not in top10_countries]
+
+    country_options = ["전체 합산"] + top10_countries + ["기타 (직접 선택)"]
     
-    selected_country = st.sidebar.radio(
-        f"🏆 **폐지 {trade_type} 상위 10개국**",
+    selected_option = st.sidebar.radio(
+        f"🏆 **폐지 {trade_type} 국가 선택**",
         country_options,
         index=0
     )
     
-    if selected_country != "전체 합산":
-        filtered_df = filtered_df[filtered_df['국가명'] == selected_country]
-        country_title_label = f"[{selected_country}]"
-    else:
+    if selected_option == "전체 합산":
         country_title_label = "[전체 국가]"
+    elif selected_option == "기타 (직접 선택)":
+        chosen_other = st.sidebar.selectbox("🔍 기타 국가를 선택하세요:", other_countries)
+        filtered_df = filtered_df[filtered_df['국가명'] == chosen_other]
+        country_title_label = f"[{chosen_other}]"
+    else:
+        # Top 10 국가 중 하나 선택
+        filtered_df = filtered_df[filtered_df['국가명'] == selected_option]
+        country_title_label = f"[{selected_option}]"
+
 else:
+    # 골판지원지, 펄프 등 일반 품목 국가 선택
     all_countries = sorted(filtered_df['국가명'].dropna().unique().tolist())
     selected_countries = st.sidebar.multiselect("국가 필터 (선택 안 하면 전체 합산)", all_countries)
     if selected_countries:
@@ -168,7 +181,7 @@ if "연간" in period_type:
     pivot_diff = pivot_full.diff()
     pivot_pct = pivot_full.pct_change() * 100.0
 
-    # 마지막 연도(2026.1-7)에 대한 직전 연도 동기간(2025.1-7) 대비 증감 연산
+    # 마지막 연도(예: 2026.1-7)에 대한 직전 연도 동기간(2025.1-7) 대비 증감 연산
     if is_partial and len(valid_years) >= 2:
         prev_year = valid_years[-2]
         prev_ytd_series = pivot_partial.loc[prev_year] if prev_year in pivot_partial.index else pd.Series(0, index=pivot_full.columns)
@@ -177,7 +190,6 @@ if "연간" in period_type:
         diff_ytd = curr_ytd_series - prev_ytd_series
         pct_ytd = (diff_ytd / prev_ytd_series.replace(0, np.nan)) * 100.0
 
-        # 라벨만 2026.1-7로 교체하고 YTD 증감값 적용 (2025.1-7 행은 표에 추가하지 않음)
         pivot_full = pivot_full.rename(index={last_year: partial_label})
         pivot_diff = pivot_diff.rename(index={last_year: partial_label})
         pivot_pct = pivot_pct.rename(index={last_year: partial_label})
