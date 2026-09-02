@@ -54,7 +54,7 @@ raw_cats = [c for c in raw_cats if c not in ['폐신문', '폐신문지']]
 priority_order = ['폐지', '골판지원지', '펄프']
 available_cats = [c for c in priority_order if c in raw_cats] + [c for c in raw_cats if c not in priority_order]
 
-trade_modes = ["수출", "수입", "수출+수입 동시조회"]
+trade_modes = ["수출", "수입", "수출+수입"]
 
 c_cat, c_trade, c_sub, c_period = st.columns([1.1, 1.4, 1.4, 1.1])
 
