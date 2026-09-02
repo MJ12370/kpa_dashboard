@@ -32,7 +32,7 @@ def load_data(file_path):
     if '수입실적(톤)' not in df.columns and '수입중량(kg)' in df.columns:
         df['수입실적(톤)'] = df['수입중량(kg)'] / 1000.0
         
-    # 기준년월에서 숫자만 정밀 추출
+    # 기준년월 숫자 추출 및 포맷팅
     raw_date = df['기준년월'].astype(str).str.replace(r'\.0$', '', regex=True)
     clean_digits = raw_date.str.replace(r'[^0-9]', '', regex=True)
     
@@ -54,47 +54,45 @@ raw_cats = [c for c in raw_cats if c not in ['폐신문', '폐신문지']]
 priority_order = ['폐지', '골판지원지', '펄프']
 available_cats = [c for c in priority_order if c in raw_cats] + [c for c in raw_cats if c not in priority_order]
 
-trade_modes = ["수출", "수입", "수출+수입"]
+col_cat, col_trade, col_period = st.columns([1.2, 1.4, 1.2])
 
-c_cat, c_trade, c_sub, c_period = st.columns([1.1, 1.4, 1.4, 1.1])
-
-with c_cat:
+with col_cat:
     selected_cat = st.radio("📂 **대분류 품목**", available_cats, horizontal=True)
 
-with c_trade:
-    trade_type = st.radio("🔄 **수출 / 수입 구분**", trade_modes, horizontal=True)
+with col_trade:
+    trade_type = st.radio("🔄 **수출 / 수입 구분**", ["수출", "수입", "수출+수입 동시조회"], horizontal=True)
 
-waste_items = ['폐골판지', '폐신문지', '고급폐지', '기타폐지']
-
-with c_sub:
-    if trade_type == "수출+수입 동시조회":
-        if selected_cat == '폐지':
-            sub_options = ["전체 합계"] + waste_items
-            chosen_sub_item = st.radio("📑 **세부 품목 선택**", sub_options, horizontal=True)
-        else:
-            other_sub_items = sorted(df[df['대분류'] == selected_cat]['중분류'].dropna().unique().tolist())
-            sub_options = ["전체 합계"] + other_sub_items
-            chosen_sub_item = st.radio("📑 **세부 품목 선택**", sub_options, horizontal=True)
-    else:
-        st.write("")
-        chosen_sub_item = None
-
-with c_period:
+with col_period:
     period_type = st.radio("📅 **집계 주기**", ["연간 합계 (YoY)", "월별 실적 (MoM)"], horizontal=True)
 
-# 3. 사이드바 및 데이터 필터링
+# 3. 세부 품목 선택창 (수출+수입 동시조회일 때 활성화)
+waste_items = ['폐골판지', '폐신문지', '고급폐지', '기타폐지']
+
+if trade_type == "수출+수입 동시조회":
+    if selected_cat == '폐지':
+        sub_options = ["폐골판지", "폐신문지", "고급폐지", "기타폐지", "전체 합계"]
+    else:
+        other_sub = sorted(df[df['대분류'] == selected_cat]['중분류'].dropna().unique().tolist())
+        sub_options = ["전체 합계"] + other_sub
+    
+    st.markdown("---")
+    chosen_sub_item = st.radio("📑 **세부 품목 선택 (수출·수입 나란히 비교)**", sub_options, horizontal=True)
+else:
+    chosen_sub_item = None
+
+# 4. 사이드바 및 데이터 필터링
 filtered_df = df[df['대분류'] == selected_cat].copy()
 st.sidebar.markdown("### 🌐 국가별 상세 조회")
 
 # -------------------------------------------------------------
-# CASE A: 수출+수입 동시조회 모드 (순수출/총교역량 제거)
+# CASE A: 수출+수입 동시조회 모드
 # -------------------------------------------------------------
 if trade_type == "수출+수입 동시조회":
     if chosen_sub_item and chosen_sub_item != "전체 합계":
         filtered_df = filtered_df[filtered_df['중분류'] == chosen_sub_item].copy()
-        display_sub_name = chosen_sub_item
+        display_name = chosen_sub_item
     else:
-        display_sub_name = f"{selected_cat} 전체"
+        display_name = f"{selected_cat} 전체"
 
     all_countries = sorted(filtered_df['국가명'].dropna().unique().tolist())
     top10_countries = (
@@ -107,7 +105,7 @@ if trade_type == "수출+수입 동시조회":
     other_countries = [c for c in all_countries if c not in top10_countries]
 
     country_options = ["전체 합산"] + top10_countries + ["기타 (직접 선택)"]
-    selected_option = st.sidebar.radio(f"🏆 **{display_sub_name} 교역 상위 10개국**", country_options, index=0)
+    selected_option = st.sidebar.radio(f"🏆 **{display_name} 교역 상위 10개국**", country_options, index=0)
 
     if selected_option == "전체 합산":
         country_title_label = "[전체 국가]"
@@ -182,7 +180,7 @@ if trade_type == "수출+수입 동시조회":
         pivot_pct = pivot_pct.replace([np.inf, -np.inf], np.nan)
         date_index_col = '기준년월'
 
-    # 2중 헤더: 수출 3열, 수입 3열만 구성
+    # 2중 헤더: [수출], [수입] 실적, 증감량, 증감률
     final_data = {
         ('수출', '실적'): pivot_base['수출실적(톤)'],
         ('수출', '증감량'): pivot_diff['수출실적(톤)'],
@@ -193,7 +191,7 @@ if trade_type == "수출+수입 동시조회":
     }
     pivot_final = pd.DataFrame(final_data, index=pivot_base.index)
 
-    st.markdown(f"### 📋 {display_sub_name} {country_title_label} 수출/수입 실적 ({period_type})")
+    st.markdown(f"### 📋 {display_name} {country_title_label} 수출/수입 실적 ({period_type})")
     st.caption("(단위 : 톤)")
 
     def format_values(val, col_type):
@@ -214,9 +212,9 @@ if trade_type == "수출+수입 동시조회":
     styled_table = pivot_final.style.format(format_dict).map(apply_styles)
     st.dataframe(styled_table, use_container_width=True, height=450)
 
-    # 수출 vs 수입 추이 차트
+    # 수출 vs 수입 비교 차트
     st.write("---")
-    st.markdown(f"### 📊 {display_sub_name} {country_title_label} 수출 vs 수입 추이 차트")
+    st.markdown(f"### 📊 {display_name} {country_title_label} 수출 vs 수입 추이 차트")
 
     if "월별" in period_type:
         chart_x = pd.to_datetime(pivot_base.index.astype(str).str.replace('.', '-') + '-01')
@@ -239,7 +237,7 @@ if trade_type == "수출+수입 동시조회":
     st.plotly_chart(fig_dual_line, use_container_width=True)
 
 # -------------------------------------------------------------
-# CASE B: 단일 수출 또는 수입 모드
+# CASE B: 단일 수출 또는 단일 수입 모드
 # -------------------------------------------------------------
 else:
     target_col = '수출실적(톤)' if trade_type == '수출' else '수입실적(톤)'
@@ -344,8 +342,8 @@ else:
             pivot_pct.loc[partial_label] = pct_ytd
 
         pivot_pct = pivot_pct.replace([np.inf, -np.inf], np.nan)
-        pivot_base = pivot_full
         date_index_col = '연도'
+        pivot_base = pivot_full
 
     else:
         pivot_base = filtered_df.pivot_table(
