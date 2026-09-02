@@ -48,6 +48,10 @@ def load_data(file_path):
 
 df = load_data(latest_file)
 
+# 화면 상단 큰 제목 추가
+st.title("원료 수출입 통관실적")
+st.write("---")
+
 # 2. 상단 필터 UI
 raw_cats = df['대분류'].dropna().unique().tolist()
 raw_cats = [c for c in raw_cats if c not in ['폐신문', '폐신문지']]
