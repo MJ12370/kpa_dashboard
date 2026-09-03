@@ -397,7 +397,6 @@ if main_menu == "원료":
     st.markdown("".join(html), unsafe_allow_html=True)
     st.caption("※ 자료출처 : 통계청")
 
-    # 하단 차트
     chart_html = [
         '<div class="chart-box">',
         '<hr style="margin: 25px 0; border: none; border-top: 1px solid #94A3B8;">',
@@ -448,16 +447,21 @@ if main_menu == "원료":
 # 2. 종이판지 수출입 통관실적 대시보드
 # ==========================================
 else:
-    paper_files = glob.glob(os.path.join(DATA_DIR, "*종이판지*수출입통계*.xlsx")) + glob.glob(os.path.join(DATA_DIR, "*지류*수출입통계*.xlsx"))
+    # 엑셀 파일 탐색 (새로 올린 파일 우선 인식)
+    paper_files = (
+        glob.glob(os.path.join(DATA_DIR, "*종이판지*통관실적*.xlsx")) +
+        glob.glob(os.path.join(DATA_DIR, "*종이판지*수출입통계*.xlsx")) +
+        glob.glob(os.path.join(DATA_DIR, "*지류*수출입통계*.xlsx"))
+    )
     if not paper_files:
-        st.error("종이판지 수출입 통계 엑셀 파일을 찾을 수 없습니다. (파일명: 종이판지_수출입통계_update.xlsx)")
+        st.error("종이판지 통계 엑셀 파일을 찾을 수 없습니다. (D:\\kita\\종이판지 통관실적.xlsx)")
         st.stop()
     latest_paper_file = max(paper_files, key=os.path.getctime)
 
     @st.cache_data
     def load_paper_data(path):
         xls = pd.ExcelFile(path)
-        sheet_target = "종이판지" if "종이판지" in xls.sheet_names else xls.sheet_names[0]
+        sheet_target = "지류_data" if "지류_data" in xls.sheet_names else ("종이판지" if "종이판지" in xls.sheet_names else xls.sheet_names[0])
         df = pd.read_excel(path, sheet_name=sheet_target)
         df['연도'] = df['연도'].astype(int)
         df['중량(톤)'] = pd.to_numeric(df['중량(톤)'], errors='coerce').fillna(0)
@@ -468,7 +472,7 @@ else:
     st.title("종이판지 수출입 통관실적")
     st.write("---")
 
-    # 사이드바 품목 선택: (종합표) 문구 제거
+    # 사이드바 품목 선택 목록
     paper_cat_dict = {
         "전체 품목": "ALL",
         # --- 종이 영역 ---
@@ -488,6 +492,7 @@ else:
         "기타특수지(합계)": "__CALC_특수지계__",
         "기타특수지(팬시지)": "팬시지",
         "기타특수지(권련지)": "권련지",
+        "기타특수지(기타)": "__CALC_특수지기타__",
         "위생용지": "위생용지",
         "중포대용크라프트지": "중포대용크라프트지",
         "종이합계": "__CALC_종이합계__",
@@ -509,15 +514,16 @@ else:
         "기타판지(기타)": "판지 기타",
         "판지합계": "__CALC_판지합계__",
         # --- 종이판지합계 ---
-        "종이판지합계": "__CALC_종이판지합계__",
+        "종이판지합계": "종이판지합계",
         # --- 종이제품 영역 ---
         "골판상자": "골판상자",
         "지대": "지대",
         "감열기록지(제품)": "감열기록지(제품)",
         "카본지 또는 유사한 복사지": "카본지",
+        "종이제품(기타)": "__CALC_지제품기타__",
         "지제품합계": "__CALC_지제품합계__",
         # --- 총합계 ---
-        "총합계": "__CALC_총합계__"
+        "총합계": "총합계"
     }
 
     st.sidebar.markdown("### 📂 품목 선택")
@@ -535,7 +541,6 @@ else:
 
     df_trade = df_p[df_p['수출/수입'] == paper_trade].copy()
 
-    # 기간 목록 추출
     all_years = sorted(df_trade['연도'].unique().tolist())
     df_monthly_all = df_trade[df_trade['월'] != '누계'].copy()
     df_monthly_all['월'] = df_monthly_all['월'].astype(int)
@@ -561,53 +566,111 @@ else:
         col_headers = target_columns
         desc_text = f"{s_ym} ~ {e_ym} (월별)"
 
-    # 기간별 수치 맵 구축
-    val_map = {item: {col: 0.0 for col in target_columns} for item in df_trade['지종'].unique()}
+    # -------------------------------------------------------------
+    # 엑셀 보고서 수식과 100% 동일하게 연산하는 엔진
+    # -------------------------------------------------------------
+    def get_period_series(df_source, is_annual=False):
+        # 결과 딕셔너리: {item_code: {col: val}}
+        all_items = df_source['지종'].unique().tolist()
+        base_map = {it: {col: 0.0 for col in target_columns} for it in all_items}
 
-    if view_type == "연간":
-        for col_y in target_columns:
-            sub = df_trade[df_trade['연도'] == col_y]
-            if '누계' in sub['월'].values:
-                sub_agg = sub[sub['월'] == '누계'].groupby('지종')['중량(톤)'].sum()
-            else:
+        if is_annual:
+            for col_y in target_columns:
+                sub = df_source[df_source['연도'] == col_y]
+                if '누계' in sub['월'].values:
+                    sub_agg = sub[sub['월'] == '누계'].groupby('지종')['중량(톤)'].sum()
+                else:
+                    sub_agg = sub.groupby('지종')['중량(톤)'].sum()
+                for it, val in sub_agg.items():
+                    if it in base_map:
+                        base_map[it][col_y] = val
+        else:
+            for col_ym in target_columns:
+                y, m = map(int, col_ym.split('.'))
+                sub = df_source[(df_source['연도'] == y) & (df_source['월'] == m)]
                 sub_agg = sub.groupby('지종')['중량(톤)'].sum()
-            for it, val in sub_agg.items():
-                if it in val_map:
-                    val_map[it][col_y] = val
-    else:
-        for col_ym in target_columns:
-            y, m = map(int, col_ym.split('.'))
-            sub = df_trade[(df_trade['연도'] == y) & (df_trade['월'] == m)]
-            sub_agg = sub.groupby('지종')['중량(톤)'].sum()
-            for it, val in sub_agg.items():
-                if it in val_map:
-                    val_map[it][col_ym] = val
+                for it, val in sub_agg.items():
+                    if it in base_map:
+                        base_map[it][col_ym] = val
 
-    def get_sum_dict(items):
-        res = {c: 0.0 for c in target_columns}
-        for it in items:
-            if it in val_map:
-                for c in target_columns:
-                    res[c] += val_map[it][c]
-        return res
+        calc_map = {k: v.copy() for k, v in base_map.items()}
 
-    val_map['__CALC_비도공계__'] = get_sum_dict(['백상지', '비도공 기타'])
-    val_map['__CALC_도공계__'] = get_sum_dict(['아트지', '도공 기타'])
-    val_map['__CALC_정보계__'] = get_sum_dict(['감열기록지', '복사용지', '전산용지'])
-    val_map['__CALC_특수지계__'] = get_sum_dict(['팬시지', '권련지'])
-    val_map['__CALC_인쇄용지소계__'] = get_sum_dict(['백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지'])
-    val_map['__CALC_종이합계__'] = get_sum_dict(['신문용지', '백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지', '팬시지', '권련지', '위생용지', '중포대용크라프트지'])
+        def sum_cols(item_list):
+            res = {c: 0.0 for c in target_columns}
+            for it in item_list:
+                if it in calc_map:
+                    for c in target_columns:
+                        res[c] += calc_map[it][c]
+            return res
 
-    val_map['__CALC_백판지도공계__'] = get_sum_dict(['도공 카톤', '도공 SC', '도공 아이보리'])
-    val_map['__CALC_백판지비도공계__'] = get_sum_dict(['비도공 카톤', '비도공 TM'])
-    val_map['__CALC_백판지계__'] = get_sum_dict(['도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM'])
-    val_map['__CALC_골판지원지계__'] = get_sum_dict(['라이너', '골심지'])
-    val_map['__CALC_기타판지계__'] = get_sum_dict(['밀크카톤', '컵원지', '판지 기타'])
-    val_map['__CALC_판지합계__'] = get_sum_dict(['도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM', '라이너', '골심지', '밀크카톤', '컵원지', '판지 기타'])
+        # 1. 소계 계산
+        calc_map['__CALC_비도공계__'] = sum_cols(['백상지', '비도공 기타'])
+        calc_map['__CALC_도공계__'] = sum_cols(['아트지', '도공 기타'])
+        calc_map['__CALC_정보계__'] = sum_cols(['감열기록지', '복사용지', '전산용지'])
+        calc_map['__CALC_인쇄용지소계__'] = {
+            c: calc_map['__CALC_비도공계__'][c] + calc_map['__CALC_도공계__'][c] + calc_map.get('박엽인쇄용지', {}).get(c, 0.0) + calc_map['__CALC_정보계__'][c]
+            for c in target_columns
+        }
 
-    val_map['__CALC_종이판지합계__'] = {c: val_map['__CALC_종이합계__'][c] + val_map['__CALC_판지합계__'][c] for c in target_columns}
-    val_map['__CALC_지제품합계__'] = get_sum_dict(['골판상자', '지대', '감열기록지(제품)', '카본지'])
-    val_map['__CALC_총합계__'] = {c: val_map['__CALC_종이판지합계__'][c] + val_map['__CALC_지제품합계__'][c] for c in target_columns}
+        # 2. 판지 소계 및 판지합계 (Row 40: E25:E39 SUBTOTAL)
+        calc_map['__CALC_백판지도공계__'] = sum_cols(['도공 카톤', '도공 SC', '도공 아이보리'])
+        calc_map['__CALC_백판지비도공계__'] = sum_cols(['비도공 카톤', '비도공 TM'])
+        calc_map['__CALC_백판지계__'] = {
+            c: calc_map['__CALC_백판지도공계__'][c] + calc_map['__CALC_백판지비도공계__'][c]
+            for c in target_columns
+        }
+        calc_map['__CALC_골판지원지계__'] = sum_cols(['라이너', '골심지'])
+        calc_map['__CALC_기타판지계__'] = sum_cols(['밀크카톤', '컵원지', '판지 기타'])
+        calc_map['__CALC_판지합계__'] = {
+            c: calc_map['__CALC_백판지계__'][c] + calc_map['__CALC_골판지원지계__'][c] + calc_map['__CALC_기타판지계__'][c]
+            for c in target_columns
+        }
+
+        # 3. 종이합계 (Row 24: =E41 - E40 / 종이판지합계 - 판지합계)
+        calc_map['__CALC_종이합계__'] = {
+            c: calc_map.get('종이판지합계', {}).get(c, 0.0) - calc_map['__CALC_판지합계__'][c]
+            for c in target_columns
+        }
+
+        # 4. 특수지 기타 (Row 20: =E24 - E23 - E22 - E19 - E18 - E17 - E5)
+        calc_map['__CALC_특수지기타__'] = {
+            c: calc_map['__CALC_종이합계__'][c] - (
+                calc_map.get('중포대용크라프트지', {}).get(c, 0.0) +
+                calc_map.get('위생용지', {}).get(c, 0.0) +
+                calc_map.get('권련지', {}).get(c, 0.0) +
+                calc_map.get('팬시지', {}).get(c, 0.0) +
+                calc_map['__CALC_인쇄용지소계__'][c] +
+                calc_map.get('신문용지', {}).get(c, 0.0)
+            )
+            for c in target_columns
+        }
+
+        # 5. 기타특수지 계 (Row 21: =팬시지 + 권련지 + 기타)
+        calc_map['__CALC_특수지계__'] = {
+            c: calc_map.get('팬시지', {}).get(c, 0.0) + calc_map.get('권련지', {}).get(c, 0.0) + calc_map['__CALC_특수지기타__'][c]
+            for c in target_columns
+        }
+
+        # 6. 지제품합계 (Row 47: =E48 - E41 / 총합계 - 종이판지합계)
+        calc_map['__CALC_지제품합계__'] = {
+            c: calc_map.get('총합계', {}).get(c, 0.0) - calc_map.get('종이판지합계', {}).get(c, 0.0)
+            for c in target_columns
+        }
+
+        # 7. 종이제품 기타 (Row 46: =E47 - E45 - E44 - E43 - E42)
+        calc_map['__CALC_지제품기타__'] = {
+            c: calc_map['__CALC_지제품합계__'][c] - (
+                calc_map.get('카본지', {}).get(c, 0.0) +
+                calc_map.get('감열기록지(제품)', {}).get(c, 0.0) +
+                calc_map.get('지대', {}).get(c, 0.0) +
+                calc_map.get('골판상자', {}).get(c, 0.0)
+            )
+            for c in target_columns
+        }
+
+        return calc_map
+
+    val_map = get_period_series(df_trade, is_annual=(view_type == "연간"))
 
     # ----------------------------------------------------
     # Case A. 단일 지종 선택 시 (증감량 / 증감률 표시)
@@ -627,43 +690,106 @@ else:
                 diff_v, rate_v = np.nan, np.nan
             else:
                 prev_v = series_v[i-1]
+                # 최신연도가 부분 누계인 경우 (예: 2026년 1~7월) -> 2025년 1~7월 동기간 수식 적용
                 if view_type == "연간" and c == last_y and is_partial_p:
                     prev_y_val = target_columns[i-1]
-                    sub_prev_same = df_monthly_all[(df_monthly_all['연도'] == prev_y_val) & (df_monthly_all['월'].isin(last_y_months))]
-                    if selected_code.startswith('__CALC_'):
-                        if selected_code == '__CALC_비도공계__':
-                            items_target = ['백상지', '비도공 기타']
-                        elif selected_code == '__CALC_도공계__':
-                            items_target = ['아트지', '도공 기타']
-                        elif selected_code == '__CALC_정보계__':
-                            items_target = ['감열기록지', '복사용지', '전산용지']
-                        elif selected_code == '__CALC_특수지계__':
-                            items_target = ['팬시지', '권련지']
-                        elif selected_code == '__CALC_백판지도공계__':
-                            items_target = ['도공 카톤', '도공 SC', '도공 아이보리']
-                        elif selected_code == '__CALC_백판지비도공계__':
-                            items_target = ['비도공 카톤', '비도공 TM']
-                        elif selected_code == '__CALC_백판지계__':
-                            items_target = ['도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM']
-                        elif selected_code == '__CALC_골판지원지계__':
-                            items_target = ['라이너', '골심지']
-                        elif selected_code == '__CALC_기타판지계__':
-                            items_target = ['밀크카톤', '컵원지', '판지 기타']
-                        elif selected_code == '__CALC_지제품합계__':
-                            items_target = ['골판상자', '지대', '감열기록지(제품)', '카본지']
-                        elif selected_code == '__CALC_인쇄용지소계__':
-                            items_target = ['백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지']
-                        elif selected_code == '__CALC_종이합계__':
-                            items_target = ['신문용지', '백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지', '팬시지', '권련지', '위생용지', '중포대용크라프트지']
-                        elif selected_code == '__CALC_판지합계__':
-                            items_target = ['도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM', '라이너', '골심지', '밀크카톤', '컵원지', '판지 기타']
-                        elif selected_code == '__CALC_종이판지합계__':
-                            items_target = ['신문용지', '백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지', '팬시지', '권련지', '위생용지', '중포대용크라프트지', '도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM', '라이너', '골심지', '밀크카톤', '컵원지', '판지 기타']
-                        else:
-                            items_target = df_trade['지종'].unique().tolist()
-                        prev_y_same_v = sub_prev_same[sub_prev_same['지종'].isin(items_target)]['중량(톤)'].sum()
+                    df_prev_same = df_monthly_all[(df_monthly_all['연도'] == prev_y_val) & (df_monthly_all['월'].isin(last_y_months))]
+                    
+                    # 전년 동기간 맵 계산
+                    sub_prev_map = {it: df_prev_same[df_prev_same['지종'] == it]['중량(톤)'].sum() for it in df_prev_same['지종'].unique()}
+                    
+                    # 동기 동일 수식 전개
+                    if selected_code == '종이판지합계':
+                        prev_y_same_v = sub_prev_map.get('종이판지합계', 0.0)
+                    elif selected_code == '총합계':
+                        prev_y_same_v = sub_prev_map.get('총합계', 0.0)
+                    elif selected_code == '__CALC_판지합계__':
+                        prev_y_same_v = (
+                            sub_prev_map.get('도공 카톤', 0) + sub_prev_map.get('도공 SC', 0) + sub_prev_map.get('도공 아이보리', 0) +
+                            sub_prev_map.get('비도공 카톤', 0) + sub_prev_map.get('비도공 TM', 0) +
+                            sub_prev_map.get('라이너', 0) + sub_prev_map.get('골심지', 0) +
+                            sub_prev_map.get('밀크카톤', 0) + sub_prev_map.get('컵원지', 0) + sub_prev_map.get('판지 기타', 0)
+                        )
+                    elif selected_code == '__CALC_종이합계__':
+                        p_board = (
+                            sub_prev_map.get('도공 카톤', 0) + sub_prev_map.get('도공 SC', 0) + sub_prev_map.get('도공 아이보리', 0) +
+                            sub_prev_map.get('비도공 카톤', 0) + sub_prev_map.get('비도공 TM', 0) +
+                            sub_prev_map.get('라이너', 0) + sub_prev_map.get('골심지', 0) +
+                            sub_prev_map.get('밀크카톤', 0) + sub_prev_map.get('컵원지', 0) + sub_prev_map.get('판지 기타', 0)
+                        )
+                        prev_y_same_v = sub_prev_map.get('종이판지합계', 0.0) - p_board
+                    elif selected_code == '__CALC_지제품합계__':
+                        prev_y_same_v = sub_prev_map.get('총합계', 0.0) - sub_prev_map.get('종이판지합계', 0.0)
+                    elif selected_code == '__CALC_지제품기타__':
+                        tot_prod = sub_prev_map.get('총합계', 0.0) - sub_prev_map.get('종이판지합계', 0.0)
+                        prev_y_same_v = tot_prod - (sub_prev_map.get('카본지', 0) + sub_prev_map.get('감열기록지(제품)', 0) + sub_prev_map.get('지대', 0) + sub_prev_map.get('골판상자', 0))
+                    elif selected_code == '__CALC_비도공계__':
+                        prev_y_same_v = sub_prev_map.get('백상지', 0) + sub_prev_map.get('비도공 기타', 0)
+                    elif selected_code == '__CALC_도공계__':
+                        prev_y_same_v = sub_prev_map.get('아트지', 0) + sub_prev_map.get('도공 기타', 0)
+                    elif selected_code == '__CALC_정보계__':
+                        prev_y_same_v = sub_prev_map.get('감열기록지', 0) + sub_prev_map.get('복사용지', 0) + sub_prev_map.get('전산용지', 0)
+                    elif selected_code == '__CALC_인쇄용지소계__':
+                        prev_y_same_v = (
+                            sub_prev_map.get('백상지', 0) + sub_prev_map.get('비도공 기타', 0) +
+                            sub_prev_map.get('아트지', 0) + sub_prev_map.get('도공 기타', 0) +
+                            sub_prev_map.get('박엽인쇄용지', 0) +
+                            sub_prev_map.get('감열기록지', 0) + sub_prev_map.get('복사용지', 0) + sub_prev_map.get('전산용지', 0)
+                        )
+                    elif selected_code == '__CALC_특수지기타__':
+                        p_board = (
+                            sub_prev_map.get('도공 카톤', 0) + sub_prev_map.get('도공 SC', 0) + sub_prev_map.get('도공 아이보리', 0) +
+                            sub_prev_map.get('비도공 카톤', 0) + sub_prev_map.get('비도공 TM', 0) +
+                            sub_prev_map.get('라이너', 0) + sub_prev_map.get('골심지', 0) +
+                            sub_prev_map.get('밀크카톤', 0) + sub_prev_map.get('컵원지', 0) + sub_prev_map.get('판지 기타', 0)
+                        )
+                        tot_paper = sub_prev_map.get('종이판지합계', 0.0) - p_board
+                        p_print = (
+                            sub_prev_map.get('백상지', 0) + sub_prev_map.get('비도공 기타', 0) +
+                            sub_prev_map.get('아트지', 0) + sub_prev_map.get('도공 기타', 0) +
+                            sub_prev_map.get('박엽인쇄용지', 0) +
+                            sub_prev_map.get('감열기록지', 0) + sub_prev_map.get('복사용지', 0) + sub_prev_map.get('전산용지', 0)
+                        )
+                        prev_y_same_v = tot_paper - (
+                            sub_prev_map.get('중포대용크라프트지', 0) + sub_prev_map.get('위생용지', 0) +
+                            sub_prev_map.get('권련지', 0) + sub_prev_map.get('팬시지', 0) +
+                            p_print + sub_prev_map.get('신문용지', 0)
+                        )
+                    elif selected_code == '__CALC_특수지계__':
+                        p_board = (
+                            sub_prev_map.get('도공 카톤', 0) + sub_prev_map.get('도공 SC', 0) + sub_prev_map.get('도공 아이보리', 0) +
+                            sub_prev_map.get('비도공 카톤', 0) + sub_prev_map.get('비도공 TM', 0) +
+                            sub_prev_map.get('라이너', 0) + sub_prev_map.get('골심지', 0) +
+                            sub_prev_map.get('밀크카톤', 0) + sub_prev_map.get('컵원지', 0) + sub_prev_map.get('판지 기타', 0)
+                        )
+                        tot_paper = sub_prev_map.get('종이판지합계', 0.0) - p_board
+                        p_print = (
+                            sub_prev_map.get('백상지', 0) + sub_prev_map.get('비도공 기타', 0) +
+                            sub_prev_map.get('아트지', 0) + sub_prev_map.get('도공 기타', 0) +
+                            sub_prev_map.get('박엽인쇄용지', 0) +
+                            sub_prev_map.get('감열기록지', 0) + sub_prev_map.get('복사용지', 0) + sub_prev_map.get('전산용지', 0)
+                        )
+                        spec_other = tot_paper - (
+                            sub_prev_map.get('중포대용크라프트지', 0) + sub_prev_map.get('위생용지', 0) +
+                            sub_prev_map.get('권련지', 0) + sub_prev_map.get('팬시지', 0) +
+                            p_print + sub_prev_map.get('신문용지', 0)
+                        )
+                        prev_y_same_v = sub_prev_map.get('팬시지', 0) + sub_prev_map.get('권련지', 0) + spec_other
+                    elif selected_code == '__CALC_백판지도공계__':
+                        prev_y_same_v = sub_prev_map.get('도공 카톤', 0) + sub_prev_map.get('도공 SC', 0) + sub_prev_map.get('도공 아이보리', 0)
+                    elif selected_code == '__CALC_백판지비도공계__':
+                        prev_y_same_v = sub_prev_map.get('비도공 카톤', 0) + sub_prev_map.get('비도공 TM', 0)
+                    elif selected_code == '__CALC_백판지계__':
+                        prev_y_same_v = (
+                            sub_prev_map.get('도공 카톤', 0) + sub_prev_map.get('도공 SC', 0) + sub_prev_map.get('도공 아이보리', 0) +
+                            sub_prev_map.get('비도공 카톤', 0) + sub_prev_map.get('비도공 TM', 0)
+                        )
+                    elif selected_code == '__CALC_골판지원지계__':
+                        prev_y_same_v = sub_prev_map.get('라이너', 0) + sub_prev_map.get('골심지', 0)
+                    elif selected_code == '__CALC_기타판지계__':
+                        prev_y_same_v = sub_prev_map.get('밀크카톤', 0) + sub_prev_map.get('컵원지', 0) + sub_prev_map.get('판지 기타', 0)
                     else:
-                        prev_y_same_v = sub_prev_same[sub_prev_same['지종'] == selected_code]['중량(톤)'].sum()
+                        prev_y_same_v = sub_prev_map.get(selected_code, 0.0)
 
                     if prev_y_same_v > 0:
                         diff_v = curr_v - prev_y_same_v
@@ -771,11 +897,12 @@ else:
         st.plotly_chart(fig_single, use_container_width=True)
 
     # ----------------------------------------------------
-    # Case B. 전체 품목 모드
+    # Case B. 전체 품목 모드 (종이판지 통관실적.xlsx와 완전 일치)
     # ----------------------------------------------------
     else:
         items_tree = [
-            ([('종이', 18, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('신문용지', 1, 2, 'text-align: center; width: 150px;')], '신문용지', ''),
+            # 1. 종이 영역
+            ([('종이', 19, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('신문용지', 1, 2, 'text-align: center; width: 150px;')], '신문용지', ''),
             ([('비도공<br>인쇄용지', 3, 1, 'vertical-align: middle; width: 85px;'), ('백상지', 1, 1, 'width: 65px;')], '백상지', ''),
             ([('기타', 1, 1, '')], '비도공 기타', ''),
             ([('계', 1, 1, '')], '__CALC_비도공계__', 'row-subtotal'),
@@ -788,22 +915,24 @@ else:
             ([('전산용지', 1, 1, '')], '전산용지', ''),
             ([('계', 1, 1, '')], '__CALC_정보계__', 'row-subtotal'),
             ([('인쇄용지소계', 1, 2, 'text-align: center;')], '__CALC_인쇄용지소계__', 'row-subtotal'),
-            ([('기타<br>특수지', 3, 1, 'vertical-align: middle; width: 85px;'), ('팬시지', 1, 1, '')], '팬시지', ''),
+            ([('기타<br>특수지', 4, 1, 'vertical-align: middle; width: 85px;'), ('팬시지', 1, 1, '')], '팬시지', ''),
             ([('권련지', 1, 1, '')], '권련지', ''),
+            ([('기타', 1, 1, '')], '__CALC_특수지기타__', ''),
             ([('계', 1, 1, '')], '__CALC_특수지계__', 'row-subtotal'),
             ([('위생용지', 1, 2, 'text-align: center;')], '위생용지', ''),
             ([('중포대용크라프트지', 1, 2, 'text-align: center;')], '중포대용크라프트지', ''),
             ([('종이합계', 1, 3, 'text-align: center; font-weight: 800;')], '__CALC_종이합계__', 'row-total'),
 
-            ([('판지', 15, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('백판지(도공)', 4, 1, 'vertical-align: middle; width: 85px;'), ('카톤용', 1, 1, 'width: 65px;')], '도공 카톤', ''),
+            # 2. 판지 영역
+            ([('판지', 16, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('백판지', 8, 1, 'vertical-align: middle; width: 45px;'), ('도공', 4, 1, 'vertical-align: middle; width: 40px;'), ('카톤용', 1, 1, 'width: 65px;')], '도공 카톤', ''),
             ([('SC', 1, 1, '')], '도공 SC', ''),
             ([('아이보리', 1, 1, '')], '도공 아이보리', ''),
             ([('계', 1, 1, '')], '__CALC_백판지도공계__', 'row-subtotal'),
-            ([('백판지(비도공)', 3, 1, 'vertical-align: middle; width: 85px;'), ('카톤용', 1, 1, '')], '비도공 카톤', ''),
+            ([('비도공', 3, 1, 'vertical-align: middle; width: 40px;'), ('카톤용', 1, 1, '')], '비도공 카톤', ''),
             ([('TM', 1, 1, '')], '비도공 TM', ''),
             ([('계', 1, 1, '')], '__CALC_백판지비도공계__', 'row-subtotal'),
-            ([('백판지 계', 1, 2, 'text-align: center;')], '__CALC_백판지계__', 'row-subtotal'),
-            ([('골판지원지', 3, 1, 'vertical-align: middle; width: 85px;'), ('라이너', 1, 1, '')], '라이너', ''),
+            ([('계', 1, 2, 'text-align: center;')], '__CALC_백판지계__', 'row-subtotal'),
+            ([('골판지<br>원지', 3, 1, 'vertical-align: middle; width: 85px;'), ('라이너', 1, 1, '')], '라이너', ''),
             ([('골심지', 1, 1, '')], '골심지', ''),
             ([('계', 1, 1, '')], '__CALC_골판지원지계__', 'row-subtotal'),
             ([('기타판지', 4, 1, 'vertical-align: middle; width: 85px;'), ('밀크카톤등', 1, 1, '')], '밀크카톤', ''),
@@ -812,18 +941,21 @@ else:
             ([('계', 1, 1, '')], '__CALC_기타판지계__', 'row-subtotal'),
             ([('판지합계', 1, 3, 'text-align: center; font-weight: 800;')], '__CALC_판지합계__', 'row-total'),
 
-            ([('종이판지합계', 1, 3, 'text-align: center; font-weight: 800;')], '__CALC_종이판지합계__', 'row-grand-total'),
+            # 3. 종이판지합계
+            ([('종이판지합계', 1, 3, 'text-align: center; font-weight: 800;')], '종이판지합계', 'row-grand-total'),
 
-            ([('종이<br>제품', 4, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('골판상자', 1, 2, 'text-align: center;')], '골판상자', ''),
+            # 4. 종이제품 영역
+            ([('종이<br>제품', 5, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('골판상자', 1, 2, 'text-align: center;')], '골판상자', ''),
             ([('지대', 1, 2, 'text-align: center;')], '지대', ''),
             ([('감열기록지', 1, 2, 'text-align: center;')], '감열기록지(제품)', ''),
             ([('카본지 또는 유사한 복사지', 1, 2, 'text-align: center;')], '카본지', ''),
+            ([('기타', 1, 2, 'text-align: center;')], '__CALC_지제품기타__', ''),
             ([('지제품합계', 1, 3, 'text-align: center; font-weight: 800;')], '__CALC_지제품합계__', 'row-total'),
 
-            ([('총합계', 1, 3, 'text-align: center; font-weight: 800;')], '__CALC_총합계__', 'row-grand-total')
+            # 5. 총합계
+            ([('총합계', 1, 3, 'text-align: center; font-weight: 800;')], '총합계', 'row-grand-total')
         ]
 
-        # (종합표) 문구 제거
         st.markdown(f"### 📋 종이·판지 {paper_trade} 실적")
         col_info, col_btn_excel, col_btn_print = st.columns([3.2, 1.1, 0.9])
         with col_info:
