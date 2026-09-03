@@ -10,7 +10,7 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="제지산업 수출입 통관실적 대시보드", layout="wide")
 
-# 인쇄 및 공통 스타일
+# 인쇄 및 공통 스타일 (테두리 선 선명화 및 우측 여백 스타일 강화)
 st.markdown("""
 <style>
 @media print {
@@ -39,7 +39,7 @@ st.markdown("""
     width: 100%;
     overflow-x: auto;
     margin-bottom: 0.5rem;
-    border: 1px solid #1E3A8A;
+    border: 1.5px solid #1E3A8A;
     border-radius: 4px;
 }
 .custom-table {
@@ -47,24 +47,33 @@ st.markdown("""
     border-collapse: collapse;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     font-size: 13px;
-    text-align: center;
     white-space: nowrap;
 }
 .custom-table th {
     background-color: #1E3A8A !important;
     color: #FFFFFF !important;
     font-weight: 700;
-    padding: 7px 8px;
-    border: 1px solid #2563EB;
+    padding: 8px 8px;
+    border: 1px solid #1E40AF;
     text-align: center !important;
 }
+/* 데이터 기본 셀: 진하고 선명한 테두리 */
 .custom-table td {
-    padding: 6px 8px;
-    border: 1px solid #E5E7EB;
+    padding: 6px 14px 6px 10px;
+    border: 1px solid #94A3B8;
     font-weight: 600;
-    color: #111827;
-    text-align: center !important;
+    color: #0F172A;
 }
+/* 텍스트 컬럼(구분)은 가운데 정렬 */
+.custom-table td.col-label {
+    text-align: center !important;
+    padding: 6px 8px !important;
+}
+/* 숫자 컬럼은 오른쪽 정렬 및 여백 */
+.custom-table td.col-num {
+    text-align: right !important;
+}
+
 .custom-table tr:nth-child(even) td {
     background-color: #F8FAFC;
 }
@@ -74,16 +83,29 @@ st.markdown("""
 .row-subtotal td {
     background-color: #E2E8F0 !important;
     font-weight: 700 !important;
+    border-top: 1.5px solid #64748B !important;
+    border-bottom: 1.5px solid #64748B !important;
 }
 .row-total td {
     background-color: #FEF3C7 !important;
     font-weight: 800 !important;
     color: #92400E !important;
+    border-top: 2px solid #D97706 !important;
+    border-bottom: 2px solid #D97706 !important;
 }
 .row-grand-total td {
     background-color: #DBEAFE !important;
     font-weight: 800 !important;
     color: #1E3A8A !important;
+    border-top: 2px solid #1E3A8A !important;
+    border-bottom: 2px solid #1E3A8A !important;
+}
+.val-negative {
+    color: #DC2626 !important;
+    font-weight: 700;
+}
+.val-zero {
+    color: #94A3B8 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -96,7 +118,7 @@ main_menu = st.sidebar.radio("통계 구분 선택", ["종이판지 수출입 �
 st.sidebar.write("---")
 
 # ==========================================
-# 1. 종이판지 수출입 통관실적 대시보드 (시계열 가로 나열 모드)
+# 1. 종이판지 수출입 통관실적 대시보드
 # ==========================================
 if main_menu == "종이판지 수출입 통관실적":
     paper_files = glob.glob(os.path.join(DATA_DIR, "*종이판지*수출입통계*.xlsx")) + glob.glob(os.path.join(DATA_DIR, "*지류*수출입통계*.xlsx"))
@@ -159,7 +181,6 @@ if main_menu == "종이판지 수출입 통관실적":
 
     # 품목 계층 마스터 테이블
     items_tree = [
-        # (구분셀 리스트: [(텍스트, rowspan, colspan, 스타일)], 지종코드, 행클래스)
         ([('종이', 18, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('신문용지', 1, 2, 'text-align: center; width: 150px;')], '신문용지', ''),
         ([('비도공<br>인쇄용지', 3, 1, 'vertical-align: middle; width: 85px;'), ('백상지', 1, 1, 'width: 65px;')], '백상지', ''),
         ([('기타', 1, 1, '')], '비도공 기타', ''),
@@ -208,13 +229,11 @@ if main_menu == "종이판지 수출입 통관실적":
         ([('총합계', 1, 3, 'text-align: center; font-weight: 800;')], '__CALC_총합계__', 'row-grand-total')
     ]
 
-    # 기간별 수치 사전 계산 (Dict: {품목: {기간: 수치}})
     val_map = {item: {col: 0.0 for col in target_columns} for item in df_trade['지종'].unique()}
 
     if view_type == "연간 실적 나열":
         for col_y in target_columns:
             sub = df_trade[df_trade['연도'] == col_y]
-            # 연간 데이터에 '누계' 행이 있으면 우선 사용, 없으면 월별 합산
             if '누계' in sub['월'].values:
                 sub_agg = sub[sub['월'] == '누계'].groupby('지종')['중량(톤)'].sum()
             else:
@@ -231,7 +250,6 @@ if main_menu == "종이판지 수출입 통관실적":
                 if it in val_map:
                     val_map[it][col_ym] = val
 
-    # 계산 항목(소계/합계) 합산 함수
     def get_sum_dict(items):
         res = {c: 0.0 for c in target_columns}
         for it in items:
@@ -264,7 +282,6 @@ if main_menu == "종이판지 수출입 통관실적":
     with col_info:
         st.caption(f"(단위 : 톤) | 조회 범위: {desc_text}")
 
-    # 엑셀 다운로드용 데이터프레임 생성
     excel_rows = []
     for cells, code, _ in items_tree:
         row_dict = {'구분': code}
@@ -293,7 +310,7 @@ if main_menu == "종이판지 수출입 통관실적":
                 body { margin: 0; padding: 0; }
                 .print-btn {
                     width: 100%; height: 38px; background-color: #FFFFFF; color: #1E3A8A;
-                    border: 1px solid #D1D5DB; border-radius: 8px; font-weight: 600; font-size: 14px;
+                    border: 1.5px solid #94A3B8; border-radius: 8px; font-weight: 600; font-size: 14px;
                     cursor: pointer; display: flex; align-items: center; justify-content: center;
                 }
                 .print-btn:hover { background-color: #EFF6FF; border-color: #1E3A8A; }
@@ -301,7 +318,7 @@ if main_menu == "종이판지 수출입 통관실적":
             <button class="print-btn" onclick="window.parent.print()">🖨️ 표 인쇄</button>
         """, height=40)
 
-    # HTML 테이블 생성 (가로 시계열 나열)
+    # HTML 테이블 생성
     html = ['<div class="custom-table-container"><table class="custom-table">']
     html.append('<thead><tr>')
     html.append('<th colspan="3" style="vertical-align: middle; width: 220px;">구 분</th>')
@@ -315,13 +332,12 @@ if main_menu == "종이판지 수출입 통관실적":
             attr_r = f' rowspan="{rspan}"' if rspan > 1 else ''
             attr_c = f' colspan="{cspan}"' if cspan > 1 else ''
             attr_s = f' style="{style}"' if style else ''
-            html.append(f'<td{attr_r}{attr_c}{attr_s}>{text}</td>')
+            html.append(f'<td class="col-label"{attr_r}{attr_c}{attr_s}>{text}</td>')
 
-        # 시계열 실적 나열
         for c in target_columns:
             val = val_map.get(code, {}).get(c, 0.0)
             disp = f"{int(round(val)):,}" if val > 0 else "-"
-            html.append(f'<td>{disp}</td>')
+            html.append(f'<td class="col-num">{disp}</td>')
         html.append('</tr>')
 
     html.append('</tbody></table></div>')
@@ -329,7 +345,7 @@ if main_menu == "종이판지 수출입 통관실적":
     st.caption("※ 자료출처 : 관세청 통관통계")
 
 # ==========================================
-# 2. 원료 수출입 통관실적 대시보드 (기존 기능)
+# 2. 원료 수출입 통관실적 대시보드
 # ==========================================
 else:
     raw_files = glob.glob(os.path.join(DATA_DIR, "제지산업_수출입통계_통합_*.xlsx"))
@@ -565,7 +581,7 @@ else:
                 body { margin: 0; padding: 0; }
                 .print-btn {
                     width: 100%; height: 38px; background-color: #FFFFFF; color: #1E3A8A;
-                    border: 1px solid #D1D5DB; border-radius: 8px; font-weight: 600; font-size: 14px;
+                    border: 1.5px solid #94A3B8; border-radius: 8px; font-weight: 600; font-size: 14px;
                     cursor: pointer; display: flex; align-items: center; justify-content: center;
                 }
                 .print-btn:hover { background-color: #EFF6FF; border-color: #1E3A8A; }
@@ -592,7 +608,7 @@ else:
 
     for idx, row in pivot_final.iterrows():
         html.append('<tr>')
-        html.append(f'<td style="font-weight: 700; background-color: #F1F5F9;">{idx}</td>')
+        html.append(f'<td class="col-label" style="font-weight: 700; background-color: #F1F5F9;">{idx}</td>')
         for col in pivot_final.columns:
             val = row[col]
             sub_type = col[1]
@@ -605,7 +621,7 @@ else:
             else:
                 display_val = f"{int(round(val)):,}"
                 css_class = "val-negative" if val < 0 else ""
-            html.append(f'<td class="{css_class}">{display_val}</td>')
+            html.append(f'<td class="col-num {css_class}">{display_val}</td>')
         html.append('</tr>')
 
     html.append('</tbody></table></div>')
@@ -615,7 +631,7 @@ else:
     # 하단 차트
     chart_html = [
         '<div class="chart-box">',
-        '<hr style="margin: 25px 0; border: none; border-top: 1px solid #E5E7EB;">',
+        '<hr style="margin: 25px 0; border: none; border-top: 1px solid #94A3B8;">',
         f'<h3 style="margin-bottom: 20px;">📊 {display_item_title} 추이 차트{title_country_str}</h3>'
     ]
 
