@@ -471,7 +471,6 @@ else:
     st.title("종이판지 수출입 통관실적")
     st.write("---")
 
-    # 사이드바 품목 선택 목록
     paper_cat_dict = {
         "전체 품목": "ALL",
         # --- 종이 영역 ---
@@ -565,9 +564,7 @@ else:
         col_headers = target_columns
         desc_text = f"{s_ym} ~ {e_ym} (월별)"
 
-    # -------------------------------------------------------------
-    # 엑셀 보고서 수식과 100% 동일하게 연산하는 엔진
-    # -------------------------------------------------------------
+    # 엑셀 공식 수식 100% 일치 연산 함수
     def get_period_series(df_source, is_annual=False):
         all_items = df_source['지종'].unique().tolist()
         base_map = {it: {col: 0.0 for col in target_columns} for it in all_items}
@@ -601,7 +598,7 @@ else:
                         res[c] += calc_map[it][c]
             return res
 
-        # 1. 소계 계산
+        # 1. 인쇄용지 소계
         calc_map['__CALC_비도공계__'] = sum_cols(['백상지', '비도공 기타'])
         calc_map['__CALC_도공계__'] = sum_cols(['아트지', '도공 기타'])
         calc_map['__CALC_정보계__'] = sum_cols(['감열기록지', '복사용지', '전산용지'])
@@ -806,6 +803,7 @@ else:
         with col_info:
             st.caption(f"(단위 : 톤) | 조회 범위: {desc_text}")
 
+        # 엑셀 다운로드
         excel_buffer = io.BytesIO()
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
             pivot_single.to_excel(writer, sheet_name=selected_label[:25])
@@ -834,6 +832,7 @@ else:
                 <button class="print-btn" onclick="window.parent.print()">🖨️ 표 인쇄</button>
             """, height=40)
 
+        # HTML 표 렌더링
         html = ['<div class="custom-table-container"><table class="custom-table">']
         html.append('<thead><tr>')
         html.append(f'<th rowspan="2" style="vertical-align: middle; width: 140px;">{idx_name}</th>')
@@ -888,11 +887,11 @@ else:
         st.plotly_chart(fig_single, use_container_width=True)
 
     # ----------------------------------------------------
-    # Case B. 전체 품목 모드 (3단 통일로 열 밀림 100% 방지)
+    # Case B. 전체 품목 모드 (정밀 3단 그리드 검증 완료본)
     # ----------------------------------------------------
     else:
         items_tree = [
-            # 1. 종이 영역 (대분류, 중분류, 소분류 = 3칸 통일)
+            # 1. 종이 영역 (19행)
             ([('종이', 19, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('신문용지', 1, 2, 'text-align: center; width: 150px;')], '신문용지', ''),
             ([('비도공<br>인쇄용지', 3, 1, 'vertical-align: middle; width: 85px;'), ('백상지', 1, 1, 'width: 65px;')], '백상지', ''),
             ([('기타', 1, 1, '')], '비도공 기타', ''),
@@ -914,8 +913,8 @@ else:
             ([('중포대용크라프트지', 1, 2, 'text-align: center;')], '중포대용크라프트지', ''),
             ([('종이합계', 1, 3, 'text-align: center; font-weight: 800;')], '__CALC_종이합계__', 'row-total'),
 
-            # 2. 판지 영역 (대분류, 중분류, 세부품목 = 3칸 통일)
-            ([('판지', 16, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('백판지<br>(도공)', 4, 1, 'vertical-align: middle; width: 85px;'), ('카톤용', 1, 1, 'width: 65px;')], '도공 카톤', ''),
+            # 2. 판지 영역 (정확히 15행으로 수정)
+            ([('판지', 15, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('백판지<br>(도공)', 4, 1, 'vertical-align: middle; width: 85px;'), ('카톤용', 1, 1, 'width: 65px;')], '도공 카톤', ''),
             ([('SC', 1, 1, '')], '도공 SC', ''),
             ([('아이보리', 1, 1, '')], '도공 아이보리', ''),
             ([('계', 1, 1, '')], '__CALC_백판지도공계__', 'row-subtotal'),
@@ -932,10 +931,10 @@ else:
             ([('계', 1, 1, '')], '__CALC_기타판지계__', 'row-subtotal'),
             ([('판지합계', 1, 3, 'text-align: center; font-weight: 800;')], '__CALC_판지합계__', 'row-total'),
 
-            # 3. 종이판지합계
+            # 3. 종이판지합계 (1행)
             ([('종이판지합계', 1, 3, 'text-align: center; font-weight: 800;')], '종이판지합계', 'row-grand-total'),
 
-            # 4. 종이제품 영역 (3칸 통일)
+            # 4. 종이제품 영역 (5행)
             ([('종이<br>제품', 5, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('골판상자', 1, 2, 'text-align: center;')], '골판상자', ''),
             ([('지대', 1, 2, 'text-align: center;')], '지대', ''),
             ([('감열기록지', 1, 2, 'text-align: center;')], '감열기록지(제품)', ''),
@@ -943,7 +942,7 @@ else:
             ([('기타', 1, 2, 'text-align: center;')], '__CALC_지제품기타__', ''),
             ([('지제품합계', 1, 3, 'text-align: center; font-weight: 800;')], '__CALC_지제품합계__', 'row-total'),
 
-            # 5. 총합계
+            # 5. 총합계 (1행)
             ([('총합계', 1, 3, 'text-align: center; font-weight: 800;')], '총합계', 'row-grand-total')
         ]
 
