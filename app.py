@@ -381,8 +381,8 @@ with col_btn_excel:
 
 # 브라우저 실제 인쇄를 트리거하는 자바스크립트 버튼
 with col_btn_print:
-    components.html("""
-        <button onclick="window.parent.print()" style="
+    st.markdown("""
+        <button onclick="window.print()" style="
             width: 100%;
             height: 38px;
             background-color: #FFFFFF;
@@ -392,11 +392,11 @@ with col_btn_print:
             font-weight: 700;
             font-size: 14px;
             cursor: pointer;
-            font-family: sans-serif;
+            transition: all 0.2s ease;
         " onmouseover="this.style.backgroundColor='#EFF6FF'" onmouseout="this.style.backgroundColor='#FFFFFF'">
             🖨️ 표 인쇄
         </button>
-    """, height=42)
+    """, unsafe_allow_html=True)
 
 # 7. 단일 블루 통일 HTML 표 조립
 top_headers = []
