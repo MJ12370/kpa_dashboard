@@ -6,6 +6,7 @@ import glob
 import io
 import plotly.express as px
 import plotly.graph_objects as go
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="원료 수출입 통관실적", layout="wide")
 
@@ -20,6 +21,7 @@ st.markdown("""
     [data-testid="stSelectbox"], 
     .stButton, 
     .stDownloadButton,
+    iframe,
     button {
         display: none !important;
     }
@@ -379,10 +381,10 @@ with col_btn_excel:
         use_container_width=True
     )
 
-# 브라우저 실제 인쇄를 트리거하는 자바스크립트 버튼
+# iframe 내부에서 브라우저 최상단 창의 print를 호출하는 공식 컴포넌트 버튼
 with col_btn_print:
-    st.markdown("""
-        <button onclick="window.print()" style="
+    components.html("""
+        <button onclick="window.parent.print()" style="
             width: 100%;
             height: 38px;
             background-color: #FFFFFF;
@@ -392,11 +394,12 @@ with col_btn_print:
             font-weight: 700;
             font-size: 14px;
             cursor: pointer;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             transition: all 0.2s ease;
         " onmouseover="this.style.backgroundColor='#EFF6FF'" onmouseout="this.style.backgroundColor='#FFFFFF'">
             🖨️ 표 인쇄
         </button>
-    """, unsafe_allow_html=True)
+    """, height=42)
 
 # 7. 단일 블루 통일 HTML 표 조립
 top_headers = []
