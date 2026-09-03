@@ -468,17 +468,61 @@ else:
     st.title("종이판지 수출입 통관실적")
     st.write("---")
 
-    # 사이드바 품목 선택
+    # 사이드바 품목 선택: (종합표) 문구 제거
+    paper_cat_dict = {
+        "전체 품목": "ALL",
+        # --- 종이 영역 ---
+        "신문용지": "신문용지",
+        "비도공인쇄용지(합계)": "__CALC_비도공계__",
+        "비도공인쇄용지(백상지)": "백상지",
+        "비도공인쇄용지(기타)": "비도공 기타",
+        "도공인쇄용지(합계)": "__CALC_도공계__",
+        "도공인쇄용지(아트지류)": "아트지",
+        "도공인쇄용지(기타)": "도공 기타",
+        "박엽인쇄용지": "박엽인쇄용지",
+        "정보인쇄용지(합계)": "__CALC_정보계__",
+        "정보인쇄용지(감열기록지)": "감열기록지",
+        "정보인쇄용지(복사용지)": "복사용지",
+        "정보인쇄용지(전산용지)": "전산용지",
+        "인쇄용지소계": "__CALC_인쇄용지소계__",
+        "기타특수지(합계)": "__CALC_특수지계__",
+        "기타특수지(팬시지)": "팬시지",
+        "기타특수지(권련지)": "권련지",
+        "위생용지": "위생용지",
+        "중포대용크라프트지": "중포대용크라프트지",
+        "종이합계": "__CALC_종이합계__",
+        # --- 판지 영역 ---
+        "백판지 도공(합계)": "__CALC_백판지도공계__",
+        "백판지 도공(카톤용)": "도공 카톤",
+        "백판지 도공(SC)": "도공 SC",
+        "백판지 도공(아이보리)": "도공 아이보리",
+        "백판지 비도공(합계)": "__CALC_백판지비도공계__",
+        "백판지 비도공(카톤용)": "비도공 카톤",
+        "백판지 비도공(TM)": "비도공 TM",
+        "백판지(전체합계)": "__CALC_백판지계__",
+        "골판지원지(합계)": "__CALC_골판지원지계__",
+        "골판지원지(라이너)": "라이너",
+        "골판지원지(골심지)": "골심지",
+        "기타판지(합계)": "__CALC_기타판지계__",
+        "기타판지(밀크카톤등)": "밀크카톤",
+        "기타판지(컵원지,접시등)": "컵원지",
+        "기타판지(기타)": "판지 기타",
+        "판지합계": "__CALC_판지합계__",
+        # --- 종이판지합계 ---
+        "종이판지합계": "__CALC_종이판지합계__",
+        # --- 종이제품 영역 ---
+        "골판상자": "골판상자",
+        "지대": "지대",
+        "감열기록지(제품)": "감열기록지(제품)",
+        "카본지 또는 유사한 복사지": "카본지",
+        "지제품합계": "__CALC_지제품합계__",
+        # --- 총합계 ---
+        "총합계": "__CALC_총합계__"
+    }
+
     st.sidebar.markdown("### 📂 품목 선택")
-    paper_cat_list = [
-        "전체 품목 (종합표)",
-        "신문용지", "백상지", "비도공 기타", "아트지", "도공 기타", "박엽인쇄용지",
-        "감열기록지", "복사용지", "전산용지", "팬시지", "권련지", "위생용지", "중포대용크라프트지",
-        "도공 카톤", "도공 SC", "도공 아이보리", "비도공 카톤", "비도공 TM",
-        "라이너", "골심지", "밀크카톤", "컵원지", "판지 기타",
-        "골판상자", "지대", "감열기록지(제품)", "카본지"
-    ]
-    selected_paper_item = st.sidebar.selectbox("지종 선택", paper_cat_list, index=0)
+    selected_label = st.sidebar.selectbox("지종 선택", list(paper_cat_dict.keys()), index=0)
+    selected_code = paper_cat_dict[selected_label]
 
     st.sidebar.write("---")
     st.sidebar.markdown("### 🔄 무역 구분")
@@ -491,85 +535,153 @@ else:
 
     df_trade = df_p[df_p['수출/수입'] == paper_trade].copy()
 
+    # 기간 목록 추출
+    all_years = sorted(df_trade['연도'].unique().tolist())
+    df_monthly_all = df_trade[df_trade['월'] != '누계'].copy()
+    df_monthly_all['월'] = df_monthly_all['월'].astype(int)
+    df_monthly_all['년월'] = df_monthly_all['연도'].astype(str) + "." + df_monthly_all['월'].apply(lambda x: f"{x:02d}")
+    all_ym = sorted(df_monthly_all['년월'].unique().tolist())
+
+    if view_type == "연간":
+        with col_p1:
+            s_year = st.selectbox("시작 연도", all_years, index=0)
+        with col_p2:
+            valid_e_years = [y for y in all_years if y >= s_year]
+            e_year = st.selectbox("종료 연도", valid_e_years, index=len(valid_e_years)-1)
+        target_columns = [y for y in all_years if s_year <= y <= e_year]
+        col_headers = [f"{y}년" for y in target_columns]
+        desc_text = f"{s_year}년 ~ {e_year}년 (연간)"
+    else:
+        with col_p1:
+            s_ym = st.selectbox("시작 연월", all_ym, index=max(0, len(all_ym)-12))
+        with col_p2:
+            valid_e_ym = [ym for ym in all_ym if ym >= s_ym]
+            e_ym = st.selectbox("종료 연월", valid_e_ym, index=len(valid_e_ym)-1)
+        target_columns = [ym for ym in all_ym if s_ym <= ym <= e_ym]
+        col_headers = target_columns
+        desc_text = f"{s_ym} ~ {e_ym} (월별)"
+
+    # 기간별 수치 맵 구축
+    val_map = {item: {col: 0.0 for col in target_columns} for item in df_trade['지종'].unique()}
+
+    if view_type == "연간":
+        for col_y in target_columns:
+            sub = df_trade[df_trade['연도'] == col_y]
+            if '누계' in sub['월'].values:
+                sub_agg = sub[sub['월'] == '누계'].groupby('지종')['중량(톤)'].sum()
+            else:
+                sub_agg = sub.groupby('지종')['중량(톤)'].sum()
+            for it, val in sub_agg.items():
+                if it in val_map:
+                    val_map[it][col_y] = val
+    else:
+        for col_ym in target_columns:
+            y, m = map(int, col_ym.split('.'))
+            sub = df_trade[(df_trade['연도'] == y) & (df_trade['월'] == m)]
+            sub_agg = sub.groupby('지종')['중량(톤)'].sum()
+            for it, val in sub_agg.items():
+                if it in val_map:
+                    val_map[it][col_ym] = val
+
+    def get_sum_dict(items):
+        res = {c: 0.0 for c in target_columns}
+        for it in items:
+            if it in val_map:
+                for c in target_columns:
+                    res[c] += val_map[it][c]
+        return res
+
+    val_map['__CALC_비도공계__'] = get_sum_dict(['백상지', '비도공 기타'])
+    val_map['__CALC_도공계__'] = get_sum_dict(['아트지', '도공 기타'])
+    val_map['__CALC_정보계__'] = get_sum_dict(['감열기록지', '복사용지', '전산용지'])
+    val_map['__CALC_특수지계__'] = get_sum_dict(['팬시지', '권련지'])
+    val_map['__CALC_인쇄용지소계__'] = get_sum_dict(['백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지'])
+    val_map['__CALC_종이합계__'] = get_sum_dict(['신문용지', '백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지', '팬시지', '권련지', '위생용지', '중포대용크라프트지'])
+
+    val_map['__CALC_백판지도공계__'] = get_sum_dict(['도공 카톤', '도공 SC', '도공 아이보리'])
+    val_map['__CALC_백판지비도공계__'] = get_sum_dict(['비도공 카톤', '비도공 TM'])
+    val_map['__CALC_백판지계__'] = get_sum_dict(['도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM'])
+    val_map['__CALC_골판지원지계__'] = get_sum_dict(['라이너', '골심지'])
+    val_map['__CALC_기타판지계__'] = get_sum_dict(['밀크카톤', '컵원지', '판지 기타'])
+    val_map['__CALC_판지합계__'] = get_sum_dict(['도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM', '라이너', '골심지', '밀크카톤', '컵원지', '판지 기타'])
+
+    val_map['__CALC_종이판지합계__'] = {c: val_map['__CALC_종이합계__'][c] + val_map['__CALC_판지합계__'][c] for c in target_columns}
+    val_map['__CALC_지제품합계__'] = get_sum_dict(['골판상자', '지대', '감열기록지(제품)', '카본지'])
+    val_map['__CALC_총합계__'] = {c: val_map['__CALC_종이판지합계__'][c] + val_map['__CALC_지제품합계__'][c] for c in target_columns}
+
     # ----------------------------------------------------
-    # Case A. 단일 지종 선택 시 (원료 표처럼 증감량/증감률 표시)
+    # Case A. 단일 지종 선택 시 (증감량 / 증감률 표시)
     # ----------------------------------------------------
-    if selected_paper_item != "전체 품목 (종합표)":
-        target_item_df = df_trade[df_trade['지종'] == selected_paper_item].copy()
+    if selected_code != "ALL":
+        series_v = [val_map.get(selected_code, {}).get(c, 0.0) for c in target_columns]
+        
+        last_y = all_years[-1]
+        last_y_months = sorted(df_monthly_all[df_monthly_all['연도'] == last_y]['월'].unique().tolist())
+        is_partial_p = (len(last_y_months) < 12 and len(last_y_months) > 0 and view_type == "연간")
+        partial_lbl = f"{last_y}.{last_y_months[0]}-{last_y_months[-1]}" if is_partial_p else str(last_y)
 
-        all_years = sorted(target_item_df['연도'].unique().tolist())
-        df_monthly_sub = target_item_df[target_item_df['월'] != '누계'].copy()
-        df_monthly_sub['월'] = df_monthly_sub['월'].astype(int)
-        df_monthly_sub['년월'] = df_monthly_sub['연도'].astype(str) + "." + df_monthly_sub['월'].apply(lambda x: f"{x:02d}")
-        all_ym = sorted(df_monthly_sub['년월'].unique().tolist())
-
-        if view_type == "연간":
-            with col_p1:
-                s_year = st.selectbox("시작 연도", all_years, index=0)
-            with col_p2:
-                valid_e_years = [y for y in all_years if y >= s_year]
-                e_year = st.selectbox("종료 연도", valid_e_years, index=len(valid_e_years)-1)
-            desc_text = f"{s_year}년 ~ {e_year}년 (연간)"
-
-            # 연간 수치 계산
-            year_records = {}
-            for y in range(s_year, e_year + 1):
-                sub_y = target_item_df[target_item_df['연도'] == y]
-                if '누계' in sub_y['월'].values:
-                    val = sub_y[sub_y['월'] == '누계']['중량(톤)'].sum()
-                else:
-                    val = sub_y['중량(톤)'].sum()
-                year_records[y] = val
-
-            p_years = sorted(year_records.keys())
-            last_y = p_years[-1]
-            last_y_months = sorted(target_item_df[(target_item_df['연도'] == last_y) & (target_item_df['월'] != '누계')]['월'].unique().tolist())
-            is_partial_p = (len(last_y_months) < 12 and len(last_y_months) > 0)
-            partial_lbl = f"{last_y}.{last_y_months[0]}-{last_y_months[-1]}" if is_partial_p else str(last_y)
-
-            rows_calc = []
-            for i, y in enumerate(p_years):
-                curr_v = year_records[y]
-                if i == 0:
-                    diff_v, rate_v = np.nan, np.nan
-                else:
-                    prev_v = year_records[p_years[i-1]]
-                    # 최신연도가 부분 누계인 경우 전년 동기 누계와 비교
-                    if y == last_y and is_partial_p:
-                        prev_y_same_months = target_item_df[(target_item_df['연도'] == p_years[i-1]) & (target_item_df['월'].isin(last_y_months))]['중량(톤)'].sum()
-                        if prev_y_same_months > 0:
-                            diff_v = curr_v - prev_y_same_months
-                            rate_v = (diff_v / prev_y_same_months) * 100.0
+        rows_calc = []
+        for i, c in enumerate(target_columns):
+            curr_v = series_v[i]
+            if i == 0:
+                diff_v, rate_v = np.nan, np.nan
+            else:
+                prev_v = series_v[i-1]
+                if view_type == "연간" and c == last_y and is_partial_p:
+                    prev_y_val = target_columns[i-1]
+                    sub_prev_same = df_monthly_all[(df_monthly_all['연도'] == prev_y_val) & (df_monthly_all['월'].isin(last_y_months))]
+                    if selected_code.startswith('__CALC_'):
+                        if selected_code == '__CALC_비도공계__':
+                            items_target = ['백상지', '비도공 기타']
+                        elif selected_code == '__CALC_도공계__':
+                            items_target = ['아트지', '도공 기타']
+                        elif selected_code == '__CALC_정보계__':
+                            items_target = ['감열기록지', '복사용지', '전산용지']
+                        elif selected_code == '__CALC_특수지계__':
+                            items_target = ['팬시지', '권련지']
+                        elif selected_code == '__CALC_백판지도공계__':
+                            items_target = ['도공 카톤', '도공 SC', '도공 아이보리']
+                        elif selected_code == '__CALC_백판지비도공계__':
+                            items_target = ['비도공 카톤', '비도공 TM']
+                        elif selected_code == '__CALC_백판지계__':
+                            items_target = ['도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM']
+                        elif selected_code == '__CALC_골판지원지계__':
+                            items_target = ['라이너', '골심지']
+                        elif selected_code == '__CALC_기타판지계__':
+                            items_target = ['밀크카톤', '컵원지', '판지 기타']
+                        elif selected_code == '__CALC_지제품합계__':
+                            items_target = ['골판상자', '지대', '감열기록지(제품)', '카본지']
+                        elif selected_code == '__CALC_인쇄용지소계__':
+                            items_target = ['백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지']
+                        elif selected_code == '__CALC_종이합계__':
+                            items_target = ['신문용지', '백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지', '팬시지', '권련지', '위생용지', '중포대용크라프트지']
+                        elif selected_code == '__CALC_판지합계__':
+                            items_target = ['도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM', '라이너', '골심지', '밀크카톤', '컵원지', '판지 기타']
+                        elif selected_code == '__CALC_종이판지합계__':
+                            items_target = ['신문용지', '백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지', '팬시지', '권련지', '위생용지', '중포대용크라프트지', '도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM', '라이너', '골심지', '밀크카톤', '컵원지', '판지 기타']
                         else:
-                            diff_v, rate_v = curr_v - prev_v, ((curr_v - prev_v) / prev_v * 100.0) if prev_v > 0 else np.nan
+                            items_target = df_trade['지종'].unique().tolist()
+                        prev_y_same_v = sub_prev_same[sub_prev_same['지종'].isin(items_target)]['중량(톤)'].sum()
+                    else:
+                        prev_y_same_v = sub_prev_same[sub_prev_same['지종'] == selected_code]['중량(톤)'].sum()
+
+                    if prev_y_same_v > 0:
+                        diff_v = curr_v - prev_y_same_v
+                        rate_v = (diff_v / prev_y_same_v) * 100.0
                     else:
                         diff_v = curr_v - prev_v
                         rate_v = (diff_v / prev_v * 100.0) if prev_v > 0 else np.nan
+                else:
+                    diff_v = curr_v - prev_v
+                    rate_v = (diff_v / prev_v * 100.0) if prev_v > 0 else np.nan
 
-                row_name = partial_lbl if (y == last_y and is_partial_p) else str(y)
-                rows_calc.append({'기준': row_name, '중량(톤)': curr_v, '증감량': diff_v, '증감률(%)': rate_v})
+            row_name = partial_lbl if (view_type == "연간" and c == last_y and is_partial_p) else str(c)
+            rows_calc.append({'기준': row_name, '중량(톤)': curr_v, '증감량': diff_v, '증감률(%)': rate_v})
 
-            pivot_single = pd.DataFrame(rows_calc).set_index('기준')
-            idx_name = "기준연도"
+        pivot_single = pd.DataFrame(rows_calc).set_index('기준')
+        idx_name = "기준연도" if view_type == "연간" else "기준년월"
 
-        else: # 월간
-            with col_p1:
-                s_ym = st.selectbox("시작 연월", all_ym, index=max(0, len(all_ym)-24))
-            with col_p2:
-                valid_e_ym = [ym for ym in all_ym if ym >= s_ym]
-                e_ym = st.selectbox("종료 연월", valid_e_ym, index=len(valid_e_ym)-1)
-            desc_text = f"{s_ym} ~ {e_ym} (월별)"
-
-            target_ym_list = [ym for ym in all_ym if s_ym <= ym <= e_ym]
-            df_target_m = df_monthly_sub[df_monthly_sub['년월'].isin(target_ym_list)].sort_values('년월')
-            pivot_m = df_target_m.groupby('년월')['중량(톤)'].sum().reindex(target_ym_list).fillna(0)
-            
-            diff_m = pivot_m.diff()
-            rate_m = pivot_m.pct_change() * 100.0
-            pivot_single = pd.DataFrame({'중량(톤)': pivot_m, '증감량': diff_m, '증감률(%)': rate_m})
-            idx_name = "기준년월"
-
-        st.markdown(f"### 📋 {selected_paper_item} {paper_trade} 실적")
+        st.markdown(f"### 📋 {selected_label} {paper_trade} 실적")
         col_info, col_btn_excel, col_btn_print = st.columns([3.2, 1.1, 0.9])
         with col_info:
             st.caption(f"(단위 : 톤) | 조회 범위: {desc_text}")
@@ -577,14 +689,14 @@ else:
         # 엑셀 다운로드
         excel_buffer = io.BytesIO()
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-            pivot_single.to_excel(writer, sheet_name=selected_paper_item)
+            pivot_single.to_excel(writer, sheet_name=selected_label[:25])
         excel_data = excel_buffer.getvalue()
 
         with col_btn_excel:
             st.download_button(
                 label="📥 엑셀 다운로드",
                 data=excel_data,
-                file_name=f"{selected_paper_item}_{paper_trade}실적_{desc_text}.xlsx",
+                file_name=f"{selected_label}_{paper_trade}실적_{desc_text}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
@@ -603,11 +715,11 @@ else:
                 <button class="print-btn" onclick="window.parent.print()">🖨️ 표 인쇄</button>
             """, height=40)
 
-        # HTML 표 렌더링 (원료표 형식)
+        # HTML 표 렌더링
         html = ['<div class="custom-table-container"><table class="custom-table">']
         html.append('<thead><tr>')
         html.append(f'<th rowspan="2" style="vertical-align: middle; width: 140px;">{idx_name}</th>')
-        html.append(f'<th colspan="3">{selected_paper_item}</th>')
+        html.append(f'<th colspan="3">{selected_label}</th>')
         html.append('</tr><tr>')
         html.append('<th>중량(톤)</th><th>증감량</th><th>증감률(%)</th>')
         html.append('</tr></thead><tbody>')
@@ -643,13 +755,12 @@ else:
 
         # 단일 품목 추이 차트
         st.write("---")
-        st.markdown(f'<div class="chart-box"><h3>📊 {selected_paper_item} {paper_trade} 추이 차트</h3></div>', unsafe_allow_html=True)
-        
+        st.markdown(f'<div class="chart-box"><h3>📊 {selected_label} {paper_trade} 추이 차트</h3></div>', unsafe_allow_html=True)
         chart_x = pivot_single.index.astype(str)
         fig_single = go.Figure()
         fig_single.add_trace(go.Scatter(
             x=chart_x, y=pivot_single['중량(톤)'],
-            name=f'{selected_paper_item} 실적(톤)',
+            name=f'{selected_label} 실적(톤)',
             mode='lines+markers',
             line=dict(color='#1E3A8A', width=2.5)
         ))
@@ -660,37 +771,9 @@ else:
         st.plotly_chart(fig_single, use_container_width=True)
 
     # ----------------------------------------------------
-    # Case B. 전체 품목 (종합표) 모드
+    # Case B. 전체 품목 모드
     # ----------------------------------------------------
     else:
-        if view_type == "연간":
-            all_years = sorted(df_trade['연도'].unique().tolist())
-            with col_p1:
-                s_year = st.selectbox("시작 연도", all_years, index=0)
-            with col_p2:
-                valid_e_years = [y for y in all_years if y >= s_year]
-                e_year = st.selectbox("종료 연도", valid_e_years, index=len(valid_e_years)-1)
-            
-            target_columns = [y for y in all_years if s_year <= y <= e_year]
-            col_headers = [f"{y}년" for y in target_columns]
-            desc_text = f"{s_year}년 ~ {e_year}년 (연간)"
-        else:
-            df_monthly = df_trade[df_trade['월'] != '누계'].copy()
-            df_monthly['월'] = df_monthly['월'].astype(int)
-            df_monthly['년월'] = df_monthly['연도'].astype(str) + "." + df_monthly['월'].apply(lambda x: f"{x:02d}")
-            all_ym = sorted(df_monthly['년월'].unique().tolist())
-
-            with col_p1:
-                s_ym = st.selectbox("시작 연월", all_ym, index=max(0, len(all_ym)-12))
-            with col_p2:
-                valid_e_ym = [ym for ym in all_ym if ym >= s_ym]
-                e_ym = st.selectbox("종료 연월", valid_e_ym, index=len(valid_e_ym)-1)
-
-            target_columns = [ym for ym in all_ym if s_ym <= ym <= e_ym]
-            col_headers = target_columns
-            desc_text = f"{s_ym} ~ {e_ym} (월별)"
-
-        # 품목 계층 마스터 테이블
         items_tree = [
             ([('종이', 18, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('신문용지', 1, 2, 'text-align: center; width: 150px;')], '신문용지', ''),
             ([('비도공<br>인쇄용지', 3, 1, 'vertical-align: middle; width: 85px;'), ('백상지', 1, 1, 'width: 65px;')], '백상지', ''),
@@ -740,54 +823,8 @@ else:
             ([('총합계', 1, 3, 'text-align: center; font-weight: 800;')], '__CALC_총합계__', 'row-grand-total')
         ]
 
-        val_map = {item: {col: 0.0 for col in target_columns} for item in df_trade['지종'].unique()}
-
-        if view_type == "연간":
-            for col_y in target_columns:
-                sub = df_trade[df_trade['연도'] == col_y]
-                if '누계' in sub['월'].values:
-                    sub_agg = sub[sub['월'] == '누계'].groupby('지종')['중량(톤)'].sum()
-                else:
-                    sub_agg = sub.groupby('지종')['중량(톤)'].sum()
-                for it, val in sub_agg.items():
-                    if it in val_map:
-                        val_map[it][col_y] = val
-        else:
-            for col_ym in target_columns:
-                y, m = map(int, col_ym.split('.'))
-                sub = df_trade[(df_trade['연도'] == y) & (df_trade['월'] == m)]
-                sub_agg = sub.groupby('지종')['중량(톤)'].sum()
-                for it, val in sub_agg.items():
-                    if it in val_map:
-                        val_map[it][col_ym] = val
-
-        def get_sum_dict(items):
-            res = {c: 0.0 for c in target_columns}
-            for it in items:
-                if it in val_map:
-                    for c in target_columns:
-                        res[c] += val_map[it][c]
-            return res
-
-        val_map['__CALC_비도공계__'] = get_sum_dict(['백상지', '비도공 기타'])
-        val_map['__CALC_도공계__'] = get_sum_dict(['아트지', '도공 기타'])
-        val_map['__CALC_정보계__'] = get_sum_dict(['감열기록지', '복사용지', '전산용지'])
-        val_map['__CALC_특수지계__'] = get_sum_dict(['팬시지', '권련지'])
-        val_map['__CALC_인쇄용지소계__'] = get_sum_dict(['백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지'])
-        val_map['__CALC_종이합계__'] = get_sum_dict(['신문용지', '백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지', '팬시지', '권련지', '위생용지', '중포대용크라프트지'])
-
-        val_map['__CALC_백판지도공계__'] = get_sum_dict(['도공 카톤', '도공 SC', '도공 아이보리'])
-        val_map['__CALC_백판지비도공계__'] = get_sum_dict(['비도공 카톤', '비도공 TM'])
-        val_map['__CALC_백판지계__'] = get_sum_dict(['도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM'])
-        val_map['__CALC_골판지원지계__'] = get_sum_dict(['라이너', '골심지'])
-        val_map['__CALC_기타판지계__'] = get_sum_dict(['밀크카톤', '컵원지', '판지 기타'])
-        val_map['__CALC_판지합계__'] = get_sum_dict(['도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM', '라이너', '골심지', '밀크카톤', '컵원지', '판지 기타'])
-
-        val_map['__CALC_종이판지합계__'] = {c: val_map['__CALC_종이합계__'][c] + val_map['__CALC_판지합계__'][c] for c in target_columns}
-        val_map['__CALC_지제품합계__'] = get_sum_dict(['골판상자', '지대', '감열기록지(제품)', '카본지'])
-        val_map['__CALC_총합계__'] = {c: val_map['__CALC_종이판지합계__'][c] + val_map['__CALC_지제품합계__'][c] for c in target_columns}
-
-        st.markdown(f"### 📋 종이·판지 {paper_trade} 실적 (종합표)")
+        # (종합표) 문구 제거
+        st.markdown(f"### 📋 종이·판지 {paper_trade} 실적")
         col_info, col_btn_excel, col_btn_print = st.columns([3.2, 1.1, 0.9])
         with col_info:
             st.caption(f"(단위 : 톤) | 조회 범위: {desc_text}")
