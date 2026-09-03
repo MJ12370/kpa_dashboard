@@ -48,17 +48,18 @@ st.markdown("""
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     font-size: 13px;
     text-align: center;
+    white-space: nowrap;
 }
 .custom-table th {
     background-color: #1E3A8A !important;
     color: #FFFFFF !important;
     font-weight: 700;
-    padding: 7px 5px;
+    padding: 7px 8px;
     border: 1px solid #2563EB;
     text-align: center !important;
 }
 .custom-table td {
-    padding: 6px 5px;
+    padding: 6px 8px;
     border: 1px solid #E5E7EB;
     font-weight: 600;
     color: #111827;
@@ -84,13 +85,6 @@ st.markdown("""
     font-weight: 800 !important;
     color: #1E3A8A !important;
 }
-.val-negative {
-    color: #DC2626 !important;
-    font-weight: 700;
-}
-.val-zero {
-    color: #9CA3AF !important;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -98,25 +92,25 @@ DATA_DIR = r"D:\kita" if os.path.exists(r"D:\kita") else "."
 
 # 최상단 대시보드 모드 선택
 st.sidebar.markdown("## 📊 대시보드 메뉴")
-main_menu = st.sidebar.radio("통계 구분 선택", ["원료 수출입 통관실적", "종이판지 수출입 통관실적"])
+main_menu = st.sidebar.radio("통계 구분 선택", ["종이판지 수출입 통관실적", "원료 수출입 통관실적"])
 st.sidebar.write("---")
 
 # ==========================================
-# 1. 종이판지 수출입 통관실적 대시보드
+# 1. 종이판지 수출입 통관실적 대시보드 (시계열 가로 나열 모드)
 # ==========================================
 if main_menu == "종이판지 수출입 통관실적":
-    paper_files = glob.glob(os.path.join(DATA_DIR, "*종이판지*수출입통계*.xlsx"))
+    paper_files = glob.glob(os.path.join(DATA_DIR, "*종이판지*수출입통계*.xlsx")) + glob.glob(os.path.join(DATA_DIR, "*지류*수출입통계*.xlsx"))
     if not paper_files:
-        st.error("종이판지 수출입 통계 엑셀 파일을 찾을 수 없습니다. (D:\\kita\\종이판지_수출입통계_update.xlsx)")
+        st.error("종이판지 수출입 통계 엑셀 파일을 찾을 수 없습니다. (파일명: 종이판지_수출입통계_update.xlsx)")
         st.stop()
     latest_paper_file = max(paper_files, key=os.path.getctime)
 
     @st.cache_data
     def load_paper_data(path):
-        df = pd.read_excel(path, sheet_name="종이판지")
-        df = df[df['월'] != '누계'].copy()
+        xls = pd.ExcelFile(path)
+        sheet_target = "종이판지" if "종이판지" in xls.sheet_names else xls.sheet_names[0]
+        df = pd.read_excel(path, sheet_name=sheet_target)
         df['연도'] = df['연도'].astype(int)
-        df['월'] = df['월'].astype(int)
         df['중량(톤)'] = pd.to_numeric(df['중량(톤)'], errors='coerce').fillna(0)
         return df
 
@@ -125,140 +119,158 @@ if main_menu == "종이판지 수출입 통관실적":
     st.title("종이판지 수출입 통관실적")
     st.write("---")
 
-    # 사이드바 컨트롤
+    # 사이드바 무역 구분
     st.sidebar.markdown("### 🔄 무역 구분")
     paper_trade = st.sidebar.radio("구분", ["수출", "수입"])
 
-    # 상단 기준년월 선택
-    df_p['년월'] = df_p['연도'].astype(str) + "." + df_p['월'].apply(lambda x: f"{x:02d}")
-    available_ym = sorted(df_p['년월'].unique(), reverse=True)
+    # 상단 기간 설정
+    col_view_type, col_p1, col_p2 = st.columns([1.2, 1.4, 1.4])
+    with col_view_type:
+        view_type = st.radio("📅 **조회 방식**", ["연간 실적 나열", "월별 실적 나열"], horizontal=True)
 
-    col_ym, col_space = st.columns([1.5, 3.5])
-    with col_ym:
-        target_ym = st.selectbox("📅 **기준 년월 선택**", available_ym, index=0)
+    df_trade = df_p[df_p['수출/수입'] == paper_trade].copy()
 
-    cur_year, cur_month = map(int, target_ym.split("."))
-    prev_year = cur_year - 1
+    if view_type == "연간 실적 나열":
+        all_years = sorted(df_trade['연도'].unique().tolist())
+        with col_p1:
+            s_year = st.selectbox("시작 연도", all_years, index=0)
+        with col_p2:
+            valid_e_years = [y for y in all_years if y >= s_year]
+            e_year = st.selectbox("종료 연도", valid_e_years, index=len(valid_e_years)-1)
+        
+        target_columns = [y for y in all_years if s_year <= y <= e_year]
+        col_headers = [f"{y}년" for y in target_columns]
+        desc_text = f"{s_year}년 ~ {e_year}년 (연간)"
+    else:
+        df_monthly = df_trade[df_trade['월'] != '누계'].copy()
+        df_monthly['월'] = df_monthly['월'].astype(int)
+        df_monthly['년월'] = df_monthly['연도'].astype(str) + "." + df_monthly['월'].apply(lambda x: f"{x:02d}")
+        all_ym = sorted(df_monthly['년월'].unique().tolist())
 
-    # 품목 계층 마스터 테이블 정의
+        with col_p1:
+            s_ym = st.selectbox("시작 연월", all_ym, index=max(0, len(all_ym)-12))
+        with col_p2:
+            valid_e_ym = [ym for ym in all_ym if ym >= s_ym]
+            e_ym = st.selectbox("종료 연월", valid_e_ym, index=len(valid_e_ym)-1)
+
+        target_columns = [ym for ym in all_ym if s_ym <= ym <= e_ym]
+        col_headers = target_columns
+        desc_text = f"{s_ym} ~ {e_ym} (월별)"
+
+    # 품목 계층 마스터 테이블
     items_tree = [
-        ('종이', '신문용지', '-', '신문용지', ''),
-        ('종이', '비도공\n인쇄용지', '백상지', '백상지', ''),
-        ('종이', '비도공\n인쇄용지', '기타', '비도공 기타', ''),
-        ('종이', '비도공\n인쇄용지', '계', '__CALC_비도공계__', 'row-subtotal'),
-        ('종이', '도공\n인쇄용지', '아트지류', '아트지', ''),
-        ('종이', '도공\n인쇄용지', '기타', '도공 기타', ''),
-        ('종이', '도공\n인쇄용지', '계', '__CALC_도공계__', 'row-subtotal'),
-        ('종이', '박엽인쇄용지', '-', '박엽인쇄용지', ''),
-        ('종이', '정보\n인쇄용지', '감열기록지', '감열기록지', ''),
-        ('종이', '정보\n인쇄용지', '복사용지', '복사용지', ''),
-        ('종이', '정보\n인쇄용지', '전산용지', '전산용지', ''),
-        ('종이', '정보\n인쇄용지', '계', '__CALC_정보계__', 'row-subtotal'),
-        ('종이', '인쇄용지소계', '-', '__CALC_인쇄용지소계__', 'row-subtotal'),
-        ('종이', '기타\n특수지', '팬시지', '팬시지', ''),
-        ('종이', '기타\n특수지', '권련지', '권련지', ''),
-        ('종이', '기타\n특수지', '계', '__CALC_특수지계__', 'row-subtotal'),
-        ('종이', '위생용지', '-', '위생용지', ''),
-        ('종이', '중포대용크라프트지', '-', '중포대용크라프트지', ''),
-        ('종이', '종이합계', '-', '__CALC_종이합계__', 'row-total'),
-        
-        ('판지', '백판지(도공)', '카톤용', '도공 카톤', ''),
-        ('판지', '백판지(도공)', 'SC', '도공 SC', ''),
-        ('판지', '백판지(도공)', '아이보리', '도공 아이보리', ''),
-        ('판지', '백판지(도공)', '계', '__CALC_백판지도공계__', 'row-subtotal'),
-        ('판지', '백판지(비도공)', '카톤용', '비도공 카톤', ''),
-        ('판지', '백판지(비도공)', 'TM', '비도공 TM', ''),
-        ('판지', '백판지(비도공)', '계', '__CALC_백판지비도공계__', 'row-subtotal'),
-        ('판지', '백판지 계', '-', '__CALC_백판지계__', 'row-subtotal'),
-        ('판지', '골판지원지', '라이너', '라이너', ''),
-        ('판지', '골판지원지', '골심지', '골심지', ''),
-        ('판지', '골판지원지', '계', '__CALC_골판지원지계__', 'row-subtotal'),
-        ('판지', '기타판지', '밀크카톤등', '밀크카톤', ''),
-        ('판지', '기타판지', '컵원지 등', '컵원지', ''),
-        ('판지', '기타판지', '판지 기타', '판지 기타', ''),
-        ('판지', '기타판지', '계', '__CALC_기타판지계__', 'row-subtotal'),
-        ('판지', '판지합계', '-', '__CALC_판지합계__', 'row-total'),
-        
-        ('종이판지합계', '-', '-', '__CALC_종이판지합계__', 'row-grand-total'),
-        
-        ('종이제품', '골판상자', '-', '골판상자', ''),
-        ('종이제품', '지대', '-', '지대', ''),
-        ('종이제품', '감열기록지(제품)', '-', '감열기록지(제품)', ''),
-        ('종이제품', '카본지/복사지', '-', '카본지', ''),
-        ('종이제품', '지제품합계', '-', '__CALC_지제품합계__', 'row-total'),
-        
-        ('총합계', '-', '-', '__CALC_총합계__', 'row-grand-total')
+        # (구분셀 리스트: [(텍스트, rowspan, colspan, 스타일)], 지종코드, 행클래스)
+        ([('종이', 18, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('신문용지', 1, 2, 'text-align: center; width: 150px;')], '신문용지', ''),
+        ([('비도공<br>인쇄용지', 3, 1, 'vertical-align: middle; width: 85px;'), ('백상지', 1, 1, 'width: 65px;')], '백상지', ''),
+        ([('기타', 1, 1, '')], '비도공 기타', ''),
+        ([('계', 1, 1, '')], '__CALC_비도공계__', 'row-subtotal'),
+        ([('도공<br>인쇄용지', 3, 1, 'vertical-align: middle; width: 85px;'), ('아트지류', 1, 1, '')], '아트지', ''),
+        ([('기타', 1, 1, '')], '도공 기타', ''),
+        ([('계', 1, 1, '')], '__CALC_도공계__', 'row-subtotal'),
+        ([('박엽인쇄용지', 1, 2, 'text-align: center;')], '박엽인쇄용지', ''),
+        ([('정보<br>인쇄용지', 4, 1, 'vertical-align: middle; width: 85px;'), ('감열기록지', 1, 1, '')], '감열기록지', ''),
+        ([('복사용지', 1, 1, '')], '복사용지', ''),
+        ([('전산용지', 1, 1, '')], '전산용지', ''),
+        ([('계', 1, 1, '')], '__CALC_정보계__', 'row-subtotal'),
+        ([('인쇄용지소계', 1, 2, 'text-align: center;')], '__CALC_인쇄용지소계__', 'row-subtotal'),
+        ([('기타<br>특수지', 3, 1, 'vertical-align: middle; width: 85px;'), ('팬시지', 1, 1, '')], '팬시지', ''),
+        ([('권련지', 1, 1, '')], '권련지', ''),
+        ([('계', 1, 1, '')], '__CALC_특수지계__', 'row-subtotal'),
+        ([('위생용지', 1, 2, 'text-align: center;')], '위생용지', ''),
+        ([('중포대용크라프트지', 1, 2, 'text-align: center;')], '중포대용크라프트지', ''),
+        ([('종이합계', 1, 3, 'text-align: center; font-weight: 800;')], '__CALC_종이합계__', 'row-total'),
+
+        ([('판지', 15, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('백판지(도공)', 4, 1, 'vertical-align: middle; width: 85px;'), ('카톤용', 1, 1, 'width: 65px;')], '도공 카톤', ''),
+        ([('SC', 1, 1, '')], '도공 SC', ''),
+        ([('아이보리', 1, 1, '')], '도공 아이보리', ''),
+        ([('계', 1, 1, '')], '__CALC_백판지도공계__', 'row-subtotal'),
+        ([('백판지(비도공)', 3, 1, 'vertical-align: middle; width: 85px;'), ('카톤용', 1, 1, '')], '비도공 카톤', ''),
+        ([('TM', 1, 1, '')], '비도공 TM', ''),
+        ([('계', 1, 1, '')], '__CALC_백판지비도공계__', 'row-subtotal'),
+        ([('백판지 계', 1, 2, 'text-align: center;')], '__CALC_백판지계__', 'row-subtotal'),
+        ([('골판지원지', 3, 1, 'vertical-align: middle; width: 85px;'), ('라이너', 1, 1, '')], '라이너', ''),
+        ([('골심지', 1, 1, '')], '골심지', ''),
+        ([('계', 1, 1, '')], '__CALC_골판지원지계__', 'row-subtotal'),
+        ([('기타판지', 4, 1, 'vertical-align: middle; width: 85px;'), ('밀크카톤등', 1, 1, '')], '밀크카톤', ''),
+        ([('컵원지,접시등', 1, 1, '')], '컵원지', ''),
+        ([('기타', 1, 1, '')], '판지 기타', ''),
+        ([('계', 1, 1, '')], '__CALC_기타판지계__', 'row-subtotal'),
+        ([('판지합계', 1, 3, 'text-align: center; font-weight: 800;')], '__CALC_판지합계__', 'row-total'),
+
+        ([('종이판지합계', 1, 3, 'text-align: center; font-weight: 800;')], '__CALC_종이판지합계__', 'row-grand-total'),
+
+        ([('종이<br>제품', 4, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('골판상자', 1, 2, 'text-align: center;')], '골판상자', ''),
+        ([('지대', 1, 2, 'text-align: center;')], '지대', ''),
+        ([('감열기록지', 1, 2, 'text-align: center;')], '감열기록지(제품)', ''),
+        ([('카본지 또는 유사한 복사지', 1, 2, 'text-align: center;')], '카본지', ''),
+        ([('지제품합계', 1, 3, 'text-align: center; font-weight: 800;')], '__CALC_지제품합계__', 'row-total'),
+
+        ([('총합계', 1, 3, 'text-align: center; font-weight: 800;')], '__CALC_총합계__', 'row-grand-total')
     ]
 
-    filtered = df_p[df_p['수출/수입'] == paper_trade]
+    # 기간별 수치 사전 계산 (Dict: {품목: {기간: 수치}})
+    val_map = {item: {col: 0.0 for col in target_columns} for item in df_trade['지종'].unique()}
 
-    def get_val(item_code, year, month=None, is_ytd=False):
-        if is_ytd:
-            sub = filtered[(filtered['연도'] == year) & (filtered['월'] <= month) & (filtered['지종'] == item_code)]
-        else:
-            sub = filtered[(filtered['연도'] == year) & (filtered['월'] == month) & (filtered['지종'] == item_code)]
-        return sub['중량(톤)'].sum()
+    if view_type == "연간 실적 나열":
+        for col_y in target_columns:
+            sub = df_trade[df_trade['연도'] == col_y]
+            # 연간 데이터에 '누계' 행이 있으면 우선 사용, 없으면 월별 합산
+            if '누계' in sub['월'].values:
+                sub_agg = sub[sub['월'] == '누계'].groupby('지종')['중량(톤)'].sum()
+            else:
+                sub_agg = sub.groupby('지종')['중량(톤)'].sum()
+            for it, val in sub_agg.items():
+                if it in val_map:
+                    val_map[it][col_y] = val
+    else:
+        for col_ym in target_columns:
+            y, m = map(int, col_ym.split('.'))
+            sub = df_trade[(df_trade['연도'] == y) & (df_trade['월'] == m)]
+            sub_agg = sub.groupby('지종')['중량(톤)'].sum()
+            for it, val in sub_agg.items():
+                if it in val_map:
+                    val_map[it][col_ym] = val
 
-    records = {}
-    unique_items = df_p['지종'].unique()
-    for item in unique_items:
-        cur_m = get_val(item, cur_year, cur_month, False)
-        prev_m = get_val(item, prev_year, cur_month, False)
-        cur_ytd = get_val(item, cur_year, cur_month, True)
-        prev_ytd = get_val(item, prev_year, cur_month, True)
-        records[item] = {
-            'cur_m': cur_m, 'prev_m': prev_m,
-            'cur_ytd': cur_ytd, 'prev_ytd': prev_ytd
-        }
-
-    def sum_items(item_list):
-        res = {'cur_m': 0, 'prev_m': 0, 'cur_ytd': 0, 'prev_ytd': 0}
-        for it in item_list:
-            if it in records:
-                for k in res:
-                    res[k] += records[it][k]
+    # 계산 항목(소계/합계) 합산 함수
+    def get_sum_dict(items):
+        res = {c: 0.0 for c in target_columns}
+        for it in items:
+            if it in val_map:
+                for c in target_columns:
+                    res[c] += val_map[it][c]
         return res
 
-    records['__CALC_비도공계__'] = sum_items(['백상지', '비도공 기타'])
-    records['__CALC_도공계__'] = sum_items(['아트지', '도공 기타'])
-    records['__CALC_정보계__'] = sum_items(['감열기록지', '복사용지', '전산용지'])
-    records['__CALC_특수지계__'] = sum_items(['팬시지', '권련지'])
-    records['__CALC_인쇄용지소계__'] = sum_items(['백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지'])
-    records['__CALC_종이합계__'] = sum_items(['신문용지', '백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지', '팬시지', '권련지', '위생용지', '중포대용크라프트지'])
+    val_map['__CALC_비도공계__'] = get_sum_dict(['백상지', '비도공 기타'])
+    val_map['__CALC_도공계__'] = get_sum_dict(['아트지', '도공 기타'])
+    val_map['__CALC_정보계__'] = get_sum_dict(['감열기록지', '복사용지', '전산용지'])
+    val_map['__CALC_특수지계__'] = get_sum_dict(['팬시지', '권련지'])
+    val_map['__CALC_인쇄용지소계__'] = get_sum_dict(['백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지'])
+    val_map['__CALC_종이합계__'] = get_sum_dict(['신문용지', '백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지', '팬시지', '권련지', '위생용지', '중포대용크라프트지'])
 
-    records['__CALC_백판지도공계__'] = sum_items(['도공 카톤', '도공 SC', '도공 아이보리'])
-    records['__CALC_백판지비도공계__'] = sum_items(['비도공 카톤', '비도공 TM'])
-    records['__CALC_백판지계__'] = sum_items(['도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM'])
-    records['__CALC_골판지원지계__'] = sum_items(['라이너', '골심지'])
-    records['__CALC_기타판지계__'] = sum_items(['밀크카톤', '컵원지', '판지 기타'])
-    records['__CALC_판지합계__'] = sum_items(['도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM', '라이너', '골심지', '밀크카톤', '컵원지', '판지 기타'])
+    val_map['__CALC_백판지도공계__'] = get_sum_dict(['도공 카톤', '도공 SC', '도공 아이보리'])
+    val_map['__CALC_백판지비도공계__'] = get_sum_dict(['비도공 카톤', '비도공 TM'])
+    val_map['__CALC_백판지계__'] = get_sum_dict(['도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM'])
+    val_map['__CALC_골판지원지계__'] = get_sum_dict(['라이너', '골심지'])
+    val_map['__CALC_기타판지계__'] = get_sum_dict(['밀크카톤', '컵원지', '판지 기타'])
+    val_map['__CALC_판지합계__'] = get_sum_dict(['도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM', '라이너', '골심지', '밀크카톤', '컵원지', '판지 기타'])
 
-    records['__CALC_종이판지합계__'] = sum_items(['신문용지', '백상지', '비도공 기타', '아트지', '도공 기타', '박엽인쇄용지', '감열기록지', '복사용지', '전산용지', '팬시지', '권련지', '위생용지', '중포대용크라프트지', '도공 카톤', '도공 SC', '도공 아이보리', '비도공 카톤', '비도공 TM', '라이너', '골심지', '밀크카톤', '컵원지', '판지 기타'])
-    records['__CALC_지제품합계__'] = sum_items(['골판상자', '지대', '감열기록지(제품)', '카본지'])
-    records['__CALC_총합계__'] = {k: records['__CALC_종이판지합계__'][k] + records['__CALC_지제품합계__'][k] for k in records['__CALC_종이판지합계__']}
+    val_map['__CALC_종이판지합계__'] = {c: val_map['__CALC_종이합계__'][c] + val_map['__CALC_판지합계__'][c] for c in target_columns}
+    val_map['__CALC_지제품합계__'] = get_sum_dict(['골판상자', '지대', '감열기록지(제품)', '카본지'])
+    val_map['__CALC_총합계__'] = {c: val_map['__CALC_종이판지합계__'][c] + val_map['__CALC_지제품합계__'][c] for c in target_columns}
 
-    st.markdown(f"### 📋 종이·판지 {paper_trade} 실적 ({target_ym})")
+    # 표 상단 제목 및 버튼
+    st.markdown(f"### 📋 종이·판지 {paper_trade} 실적 ({view_type.replace(' 나열', '')})")
     col_info, col_btn_excel, col_btn_print = st.columns([3.2, 1.1, 0.9])
     with col_info:
-        st.caption(f"(단위 : 톤) | 기준: {cur_year}년 {cur_month}월 (당월 및 1~{cur_month}월 누계)")
+        st.caption(f"(단위 : 톤) | 조회 범위: {desc_text}")
 
+    # 엑셀 다운로드용 데이터프레임 생성
     excel_rows = []
-    for g1, g2, g3, code, _ in items_tree:
-        d = records.get(code, {'cur_m':0, 'prev_m':0, 'cur_ytd':0, 'prev_ytd':0})
-        diff_m = d['cur_m'] - d['prev_m']
-        rate_m = (diff_m / d['prev_m'] * 100) if d['prev_m'] > 0 else 0
-        diff_y = d['cur_ytd'] - d['prev_ytd']
-        rate_y = (diff_y / d['prev_ytd'] * 100) if d['prev_ytd'] > 0 else 0
-
-        excel_rows.append({
-            '대분류': g1, '중분류': g2.replace('\n', ' '), '소분류': g3,
-            f'{prev_year}.{cur_month:02d}': round(d['prev_m']),
-            f'{cur_year}.{cur_month:02d}': round(d['cur_m']),
-            '당월 증감량': round(diff_m), '당월 증감률(%)': round(rate_m, 1),
-            f'{prev_year} 누계': round(d['prev_ytd']),
-            f'{cur_year} 누계': round(d['cur_ytd']),
-            '누계 증감량': round(diff_y), '누계 증감률(%)': round(rate_y, 1)
-        })
+    for cells, code, _ in items_tree:
+        row_dict = {'구분': code}
+        for c, h in zip(target_columns, col_headers):
+            row_dict[h] = round(val_map.get(code, {}).get(c, 0))
+        excel_rows.append(row_dict)
     paper_excel_df = pd.DataFrame(excel_rows)
 
     excel_buffer = io.BytesIO()
@@ -270,7 +282,7 @@ if main_menu == "종이판지 수출입 통관실적":
         st.download_button(
             label="📥 엑셀 다운로드",
             data=excel_data,
-            file_name=f"종이판지_{paper_trade}실적_{target_ym}.xlsx",
+            file_name=f"종이판지_{paper_trade}실적_{desc_text}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
@@ -289,46 +301,27 @@ if main_menu == "종이판지 수출입 통관실적":
             <button class="print-btn" onclick="window.parent.print()">🖨️ 표 인쇄</button>
         """, height=40)
 
+    # HTML 테이블 생성 (가로 시계열 나열)
     html = ['<div class="custom-table-container"><table class="custom-table">']
-    html.append('<thead>')
-    html.append('<tr>')
-    html.append('<th colspan="3" rowspan="2" style="vertical-align: middle;">구 분</th>')
-    html.append(f'<th colspan="4">당 월 ({cur_month}월)</th>')
-    html.append(f'<th colspan="4">누 계 (1~{cur_month}월)</th>')
-    html.append('</tr>')
-    html.append('<tr>')
-    html.append(f'<th>{prev_year}.{cur_month:02d}</th><th>{cur_year}.{cur_month:02d}</th><th>증감량</th><th>증감률</th>')
-    html.append(f'<th>{prev_year} 누계</th><th>{cur_year} 누계</th><th>증감량</th><th>증감률</th>')
+    html.append('<thead><tr>')
+    html.append('<th colspan="3" style="vertical-align: middle; width: 220px;">구 분</th>')
+    for h in col_headers:
+        html.append(f'<th>{h}</th>')
     html.append('</tr></thead><tbody>')
 
-    for g1, g2, g3, code, row_cls in items_tree:
-        d = records.get(code, {'cur_m':0, 'prev_m':0, 'cur_ytd':0, 'prev_ytd':0})
-        diff_m = d['cur_m'] - d['prev_m']
-        rate_m = (diff_m / d['prev_m'] * 100) if d['prev_m'] > 0 else 0
-        diff_y = d['cur_ytd'] - d['prev_ytd']
-        rate_y = (diff_y / d['prev_ytd'] * 100) if d['prev_ytd'] > 0 else 0
-
+    for cells, code, row_cls in items_tree:
         html.append(f'<tr class="{row_cls}">')
-        if g2 == '-':
-            html.append(f'<td colspan="3" style="text-align: center; font-weight: 700;">{g1}</td>')
-        elif g3 == '-':
-            html.append(f'<td>{g1}</td><td colspan="2" style="text-align: center;">{g2}</td>')
-        else:
-            html.append(f'<td>{g1}</td><td>{g2.replace(chr(10), "<br>")}</td><td>{g3}</td>')
+        for text, rspan, cspan, style in cells:
+            attr_r = f' rowspan="{rspan}"' if rspan > 1 else ''
+            attr_c = f' colspan="{cspan}"' if cspan > 1 else ''
+            attr_s = f' style="{style}"' if style else ''
+            html.append(f'<td{attr_r}{attr_c}{attr_s}>{text}</td>')
 
-        html.append(f'<td>{int(round(d["prev_m"])):,}</td>')
-        html.append(f'<td>{int(round(d["cur_m"])):,}</td>')
-        cls_diff_m = "val-negative" if diff_m < 0 else ""
-        html.append(f'<td class="{cls_diff_m}">{int(round(diff_m)):,}</td>')
-        cls_rate_m = "val-negative" if rate_m < 0 else ""
-        html.append(f'<td class="{cls_rate_m}">{rate_m:,.1f}%</td>')
-
-        html.append(f'<td>{int(round(d["prev_ytd"])):,}</td>')
-        html.append(f'<td>{int(round(d["cur_ytd"])):,}</td>')
-        cls_diff_y = "val-negative" if diff_y < 0 else ""
-        html.append(f'<td class="{cls_diff_y}">{int(round(diff_y)):,}</td>')
-        cls_rate_y = "val-negative" if rate_y < 0 else ""
-        html.append(f'<td class="{cls_rate_y}">{rate_y:,.1f}%</td>')
+        # 시계열 실적 나열
+        for c in target_columns:
+            val = val_map.get(code, {}).get(c, 0.0)
+            disp = f"{int(round(val)):,}" if val > 0 else "-"
+            html.append(f'<td>{disp}</td>')
         html.append('</tr>')
 
     html.append('</tbody></table></div>')
@@ -336,7 +329,7 @@ if main_menu == "종이판지 수출입 통관실적":
     st.caption("※ 자료출처 : 관세청 통관통계")
 
 # ==========================================
-# 2. 원료 수출입 통관실적 대시보드
+# 2. 원료 수출입 통관실적 대시보드 (기존 기능)
 # ==========================================
 else:
     raw_files = glob.glob(os.path.join(DATA_DIR, "제지산업_수출입통계_통합_*.xlsx"))
