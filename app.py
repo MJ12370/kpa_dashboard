@@ -545,6 +545,15 @@ else:
     df_monthly_all['년월'] = df_monthly_all['연도'].astype(str) + "." + df_monthly_all['월'].apply(lambda x: f"{x:02d}")
     all_ym = sorted(df_monthly_all['년월'].unique().tolist())
 
+    # 연도별 월 범위 파악 (예: 2026년 -> 1~7월)
+    year_month_range = {}
+    for y in all_years:
+        m_list = sorted(df_monthly_all[df_monthly_all['연도'] == y]['월'].unique().tolist())
+        if len(m_list) > 0 and len(m_list) < 12:
+            year_month_range[y] = f"{m_list[0]}~{m_list[-1]}월"
+        else:
+            year_month_range[y] = None
+
     if view_type == "연간":
         with col_p1:
             s_year = st.selectbox("시작 연도", all_years, index=0)
@@ -552,7 +561,15 @@ else:
             valid_e_years = [y for y in all_years if y >= s_year]
             e_year = st.selectbox("종료 연도", valid_e_years, index=len(valid_e_years)-1)
         target_columns = [y for y in all_years if s_year <= y <= e_year]
-        col_headers = [f"{y}년" for y in target_columns]
+        
+        # 12개월 미만인 연도는 (1~7월) 등 표시 부여
+        col_headers = []
+        for y in target_columns:
+            if year_month_range.get(y):
+                col_headers.append(f"{y}년<br><span style='font-size:11px; font-weight:normal;'>({year_month_range[y]})</span>")
+            else:
+                col_headers.append(f"{y}년")
+                
         desc_text = f"{s_year}년 ~ {e_year}년 (연간)"
     else:
         with col_p1:
@@ -676,7 +693,6 @@ else:
         last_y = all_years[-1]
         last_y_months = sorted(df_monthly_all[df_monthly_all['연도'] == last_y]['월'].unique().tolist())
         is_partial_p = (len(last_y_months) < 12 and len(last_y_months) > 0 and view_type == "연간")
-        partial_lbl = f"{last_y}.{last_y_months[0]}-{last_y_months[-1]}" if is_partial_p else str(last_y)
 
         rows_calc = []
         for i, c in enumerate(target_columns):
@@ -792,7 +808,14 @@ else:
                     diff_v = curr_v - prev_v
                     rate_v = (diff_v / prev_v * 100.0) if prev_v > 0 else np.nan
 
-            row_name = partial_lbl if (view_type == "연간" and c == last_y and is_partial_p) else str(c)
+            if view_type == "연간":
+                if year_month_range.get(c):
+                    row_name = f"{c}년 ({year_month_range[c]})"
+                else:
+                    row_name = f"{c}년"
+            else:
+                row_name = str(c)
+
             rows_calc.append({'기준': row_name, '중량(톤)': curr_v, '증감량': diff_v, '증감률(%)': rate_v})
 
         pivot_single = pd.DataFrame(rows_calc).set_index('기준')
@@ -803,7 +826,6 @@ else:
         with col_info:
             st.caption(f"(단위 : 톤) | 조회 범위: {desc_text}")
 
-        # 엑셀 다운로드
         excel_buffer = io.BytesIO()
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
             pivot_single.to_excel(writer, sheet_name=selected_label[:25])
@@ -832,7 +854,6 @@ else:
                 <button class="print-btn" onclick="window.parent.print()">🖨️ 표 인쇄</button>
             """, height=40)
 
-        # HTML 표 렌더링
         html = ['<div class="custom-table-container"><table class="custom-table">']
         html.append('<thead><tr>')
         html.append(f'<th rowspan="2" style="vertical-align: middle; width: 140px;">{idx_name}</th>')
@@ -951,10 +972,12 @@ else:
         with col_info:
             st.caption(f"(단위 : 톤) | 조회 범위: {desc_text}")
 
+        # 엑셀 다운로드용 텍스트 (태그 제거)
+        excel_headers = [h.replace('<br>', ' ').replace("<span style='font-size:11px; font-weight:normal;'>", "").replace("</span>", "") for h in col_headers]
         excel_rows = []
         for cells, code, _ in items_tree:
             row_dict = {'구분': code}
-            for c, h in zip(target_columns, col_headers):
+            for c, h in zip(target_columns, excel_headers):
                 row_dict[h] = round(val_map.get(code, {}).get(c, 0))
             excel_rows.append(row_dict)
         paper_excel_df = pd.DataFrame(excel_rows)
