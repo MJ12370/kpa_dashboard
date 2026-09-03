@@ -19,7 +19,8 @@ st.markdown("""
     [data-testid="stRadio"], 
     [data-testid="stSelectbox"], 
     .stButton, 
-    .stDownloadButton {
+    .stDownloadButton,
+    button {
         display: none !important;
     }
     .block-container {
@@ -200,21 +201,18 @@ else:
 # 4. 데이터 필터링
 filtered_df = cat_df.copy()
 
-# '전체' 표기 제거: 세부 품목이 '전체'일 때는 대분류 명칭만 표기
 if chosen_sub_item != "전체":
     filtered_df = filtered_df[filtered_df['중분류'] == chosen_sub_item]
     display_item_title = chosen_sub_item
 else:
     display_item_title = f"{selected_cat}"
 
-# 국가 표기: 전체 국가는 빈칸, 개별 국가는 (국가명)
 if selected_country != "전체 국가":
     filtered_df = filtered_df[filtered_df['국가명'] == selected_country]
     title_country_str = f" ({selected_country})"
 else:
     title_country_str = ""
 
-# 기간 필터 적용
 if "연간" in period_mode:
     period_type = "연간 합계 (YoY)"
     filtered_df = filtered_df[(filtered_df['기준연도'] >= start_year) & (filtered_df['기준연도'] <= end_year)]
@@ -381,8 +379,24 @@ with col_btn_excel:
         use_container_width=True
     )
 
+# 브라우저 실제 인쇄를 트리거하는 자바스크립트 버튼
 with col_btn_print:
-    st.button("🖨️ 표 인쇄", on_click=lambda: None, use_container_width=True)
+    st.markdown("""
+        <button onclick="window.print()" style="
+            width: 100%;
+            height: 38px;
+            background-color: #FFFFFF;
+            color: #1E3A8A;
+            border: 1px solid #1E3A8A;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        " onmouseover="this.style.backgroundColor='#EFF6FF'" onmouseout="this.style.backgroundColor='#FFFFFF'">
+            🖨️ 표 인쇄
+        </button>
+    """, unsafe_allow_html=True)
 
 # 7. 단일 블루 통일 HTML 표 조립
 top_headers = []
