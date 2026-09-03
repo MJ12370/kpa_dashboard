@@ -10,11 +10,11 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="원료 수출입 통관실적", layout="wide")
 
-# 인쇄 시 불필요 영역 숨김 스타일
+# 인쇄 시 불필요 영역 숨김 스타일 (차트 및 제목 완전 차단)
 st.markdown("""
 <style>
 @media print {
-    /* 사이드바, 컨트롤 필터, 다운로드/인쇄 버튼 숨김 */
+    /* 1. 사이드바, 컨트롤 필터, 다운로드/인쇄 버튼 숨김 */
     [data-testid="stSidebar"], 
     header, 
     [data-testid="stRadio"], 
@@ -26,9 +26,9 @@ st.markdown("""
         display: none !important;
     }
     
-    /* 하단 차트 및 구분선 완전히 제거 */
-    .chart-section, 
-    .chart-section *, 
+    /* 2. 하단 차트, 구분선, 차트 제목 텍스트 완전히 차단 */
+    .chart-box, 
+    .chart-box *, 
     .stPlotlyChart, 
     hr {
         display: none !important;
@@ -393,7 +393,6 @@ with col_btn_excel:
         use_container_width=True
     )
 
-# 높이와 마진을 엑셀 다운로드 버튼에 맞춘 인쇄 버튼
 with col_btn_print:
     components.html("""
         <style>
@@ -473,12 +472,17 @@ html.append('</tbody></table></div>')
 st.markdown("".join(html), unsafe_allow_html=True)
 st.caption("※ 자료출처 : 통계청")
 
-# 8. 차트 출력 (인쇄 시 완전히 숨겨지도록 chart-section 태그로 감쌈)
-st.markdown('<div class="chart-section">', unsafe_allow_html=True)
-st.write("---")
-st.markdown(f"### 📊 {display_item_title} 추이 차트{title_country_str}")
+# 8. 차트 출력 (차트 제목 및 서브헤더를 순수 HTML로 감싸 인쇄 시 100% 완전 차단)
+chart_html = [
+    '<div class="chart-box">',
+    '<hr style="margin: 25px 0; border: none; border-top: 1px solid #E5E7EB;">',
+    f'<h3 style="margin-bottom: 20px;">📊 {display_item_title} 추이 차트{title_country_str}</h3>'
+]
 
 if trade_type == "수출+수입":
+    chart_html.append('</div>')
+    st.markdown("".join(chart_html), unsafe_allow_html=True)
+
     if "월별" in period_type:
         chart_x = pd.to_datetime(pivot_base.index.astype(str).str.replace('.', '-') + '-01')
     else:
@@ -500,6 +504,9 @@ if trade_type == "수출+수입":
     st.plotly_chart(fig_dual_line, use_container_width=True)
 
 elif chosen_sub_item != "전체":
+    chart_html.append('</div>')
+    st.markdown("".join(chart_html), unsafe_allow_html=True)
+
     if "월별" in period_type:
         chart_x = pd.to_datetime(pivot_base.index.astype(str).str.replace('.', '-') + '-01')
     else:
@@ -523,9 +530,12 @@ elif chosen_sub_item != "전체":
     st.plotly_chart(fig_single, use_container_width=True)
 
 else:
+    chart_html.append('</div>')
+    st.markdown("".join(chart_html), unsafe_allow_html=True)
+
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown("##### 📈 세부 품목별 실적 (톤)")
+        st.markdown('<div class="chart-box"><h5 style="margin-bottom: 10px;">📈 세부 품목별 실적 (톤)</h5></div>', unsafe_allow_html=True)
         item_cols = [c for c in pivot_base.columns if c != '합계']
         chart_line_df = pivot_base[item_cols].reset_index()
         chart_line_df.rename(columns={chart_line_df.columns[0]: date_index_col}, inplace=True)
@@ -551,7 +561,7 @@ else:
         st.plotly_chart(fig_line, use_container_width=True)
 
     with c2:
-        st.markdown("##### 🏛️ 합계 실적 및 증감량 (톤)")
+        st.markdown('<div class="chart-box"><h5 style="margin-bottom: 10px;">🏛️ 합계 실적 및 증감량 (톤)</h5></div>', unsafe_allow_html=True)
         fig_bar = go.Figure()
         if "월별" in period_type:
             bar_x = pd.to_datetime(pivot_base.index.astype(str).str.replace('.', '-') + '-01')
@@ -571,5 +581,3 @@ else:
             yaxis2=dict(title="증감량(톤)", overlaying='y', side='right', showgrid=False, tickformat=",.0f")
         )
         st.plotly_chart(fig_bar, use_container_width=True)
-
-st.markdown('</div>', unsafe_allow_html=True)
