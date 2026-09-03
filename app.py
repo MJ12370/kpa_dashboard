@@ -19,6 +19,54 @@ st.markdown("""
         padding: 0 !important;
     }
 }
+/* 표 커스텀 스타일 */
+.custom-table-container {
+    width: 100%;
+    overflow-x: auto;
+    margin-bottom: 1rem;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+}
+.custom-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 13.5px;
+    text-align: center;
+}
+.custom-table th {
+    background-color: #1E3A8A;
+    color: #FFFFFF !important;
+    font-weight: 700;
+    padding: 9px 8px;
+    border: 1px solid #3B82F6;
+    text-align: center !important;
+}
+.custom-table th.sub-th {
+    background-color: #2563EB;
+    font-weight: 600;
+    font-size: 12.5px;
+}
+.custom-table td {
+    padding: 8px 6px;
+    border: 1px solid #E5E7EB;
+    font-weight: 600;
+    color: #111827;
+    text-align: center !important;
+}
+.custom-table tr:nth-child(even) td {
+    background-color: #F8FAFC;
+}
+.custom-table tr:hover td {
+    background-color: #EFF6FF;
+}
+.val-negative {
+    color: #DC2626 !important;
+    font-weight: 700;
+}
+.val-zero {
+    color: #9CA3AF !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -64,12 +112,12 @@ df = load_data(latest_file)
 st.title("원료 수출입 통관실적")
 st.write("---")
 
-# 품목별 순서 사전 정의
+# 품목별 순서 정의
 waste_order = ['전체', '폐골판지', '폐신문지', '고급폐지', '기타폐지']
 pulp_order = ['전체', 'GP', 'DP', 'UKP', 'BKP', 'BCTMP', '면린터펄프', 'DIP', '기타']
 liner_order = ['전체', '라이너', '골심지']
 
-# 2. 사이드바 계층 UI 구성 (대분류 -> 세부 품목 -> 수출/수입 -> 국가)
+# 2. 사이드바 UI
 st.sidebar.markdown("### 📂 품목 선택")
 selected_cat = st.sidebar.radio("대분류", ['폐지', '펄프', '골판지원지'])
 
@@ -98,7 +146,6 @@ trade_type = st.sidebar.radio("수출 / 수입 선택", ["수출", "수입", "�
 st.sidebar.write("---")
 st.sidebar.markdown("### 🌐 국가 선택")
 
-# 선택된 세부 품목 기준 국가 목록 및 상위국 집계
 if chosen_sub_item != "전체":
     country_calc_df = cat_df[cat_df['중분류'] == chosen_sub_item]
 else:
@@ -124,23 +171,31 @@ elif country_pick == "기타 (직접 선택)":
 else:
     selected_country = country_pick
 
-# 3. 상단 설정 영역: [기간 선택 (집계주기+기간 드롭다운)] 단독 배치
+# 3. 상단 설정 영역: 직접 지정 기간 선택 (연간 / 월간)
 all_years = sorted([y for y in df['기준연도'].unique() if len(str(y)) == 4 and str(y).isdigit()])
-min_year = int(all_years[0])
-max_year = int(all_years[-1])
+all_dates = sorted(df['기준년월'].unique().tolist())
 
-period_options = [
-    "연간 전체 (2010년~현재)",
-    "최근 5개년 연간 (YoY)",
-    "최근 3개년 연간 (YoY)",
-    "최근 12개월 (월별 MoM)",
-    "최근 24개월 (월별 MoM)",
-    "최근 36개월 (월별 MoM)",
-    "월별 전체 실적 (MoM)"
-]
-selected_period_opt = st.selectbox("📅 **조회 기간 및 집계 방식**", period_options, index=0)
+col_period_type, col_start, col_end = st.columns([1.2, 1.4, 1.4])
 
-# 4. 데이터 필터링 로직
+with col_period_type:
+    period_mode = st.radio("📅 **조회 단위**", ["연간 합계 (YoY)", "월별 실적 (MoM)"], horizontal=True)
+
+if "연간" in period_mode:
+    with col_start:
+        start_year = st.selectbox("시작 연도", all_years, index=0)
+    with col_end:
+        valid_end_years = [y for y in all_years if y >= start_year]
+        end_year = st.selectbox("종료 연도", valid_end_years, index=len(valid_end_years)-1)
+    selected_desc = f"{start_year}년 ~ {end_year}년 (연간)"
+else:
+    with col_start:
+        start_date = st.selectbox("시작 연월", all_dates, index=max(0, len(all_dates)-24))
+    with col_end:
+        valid_end_dates = [d for d in all_dates if d >= start_date]
+        end_date = st.selectbox("종료 연월", valid_end_dates, index=len(valid_end_dates)-1)
+    selected_desc = f"{start_date} ~ {end_date} (월별)"
+
+# 4. 데이터 필터링
 filtered_df = cat_df.copy()
 
 if chosen_sub_item != "전체":
@@ -155,33 +210,19 @@ if selected_country != "전체 국가":
 else:
     title_country_str = "[전체 국가]"
 
-# 기간 및 주기 파싱
-if "연간" in selected_period_opt:
+# 기간 필터 적용
+if "연간" in period_mode:
     period_type = "연간 합계 (YoY)"
-    if "최근 5개년" in selected_period_opt:
-        start_y = str(max(min_year, max_year - 4))
-        filtered_df = filtered_df[filtered_df['기준연도'] >= start_y]
-    elif "최근 3개년" in selected_period_opt:
-        start_y = str(max(min_year, max_year - 2))
-        filtered_df = filtered_df[filtered_df['기준연도'] >= start_y]
+    filtered_df = filtered_df[(filtered_df['기준연도'] >= start_year) & (filtered_df['기준연도'] <= end_year)]
 else:
     period_type = "월별 실적 (MoM)"
-    all_dates = sorted(df['기준년월'].unique().tolist())
-    if "최근 12개월" in selected_period_opt:
-        target_dates = all_dates[-12:]
-        filtered_df = filtered_df[filtered_df['기준년월'].isin(target_dates)]
-    elif "최근 24개월" in selected_period_opt:
-        target_dates = all_dates[-24:]
-        filtered_df = filtered_df[filtered_df['기준년월'].isin(target_dates)]
-    elif "최근 36개월" in selected_period_opt:
-        target_dates = all_dates[-36:]
-        filtered_df = filtered_df[filtered_df['기준년월'].isin(target_dates)]
+    filtered_df = filtered_df[(filtered_df['기준년월'] >= start_date) & (filtered_df['기준년월'] <= end_date)]
 
 if filtered_df.empty:
-    st.warning("선택된 조건에 해당하는 데이터가 없습니다.")
+    st.warning("선택된 기간 및 조건에 해당하는 데이터가 없습니다.")
     st.stop()
 
-# 5. 피벗 및 연산
+# 5. 집계 및 증감 계산
 valid_years = sorted([y for y in filtered_df['기준연도'].unique() if len(str(y)) == 4 and str(y).isdigit()])
 last_year = valid_years[-1]
 last_year_months = sorted([m for m in filtered_df[filtered_df['기준연도'] == last_year]['월'].unique() if 1 <= m <= 12])
@@ -222,24 +263,25 @@ if trade_type == "수출+수입" or chosen_sub_item != "전체":
         pivot_pct = pivot_base.pct_change() * 100.0
         date_index_col = '기준년월'
 
+    # 중복 제거: 하위 열을 '중량(톤)'으로 설정
     if trade_type == "수출":
         final_data = {
-            ('수출', '실적'): pivot_base['수출실적(톤)'],
+            ('수출', '중량(톤)'): pivot_base['수출실적(톤)'],
             ('수출', '증감량'): pivot_diff['수출실적(톤)'],
             ('수출', '증감률'): pivot_pct['수출실적(톤)']
         }
     elif trade_type == "수입":
         final_data = {
-            ('수입', '실적'): pivot_base['수입실적(톤)'],
+            ('수입', '중량(톤)'): pivot_base['수입실적(톤)'],
             ('수입', '증감량'): pivot_diff['수입실적(톤)'],
             ('수입', '증감률'): pivot_pct['수입실적(톤)']
         }
     else:
         final_data = {
-            ('수출', '실적'): pivot_base['수출실적(톤)'],
+            ('수출', '중량(톤)'): pivot_base['수출실적(톤)'],
             ('수출', '증감량'): pivot_diff['수출실적(톤)'],
             ('수출', '증감률'): pivot_pct['수출실적(톤)'],
-            ('수입', '실적'): pivot_base['수입실적(톤)'],
+            ('수입', '중량(톤)'): pivot_base['수입실적(톤)'],
             ('수입', '증감량'): pivot_diff['수입실적(톤)'],
             ('수입', '증감률'): pivot_pct['수입실적(톤)']
         }
@@ -308,34 +350,64 @@ else:
 
     final_data = {}
     for col in pivot_base.columns:
-        final_data[(col, col if col != '합계' else '합계')] = pivot_base[col]
+        # 하위 열 이름을 '중량(톤)'으로 설정하여 헤더 중복 해결
+        final_data[(col, '중량(톤)')] = pivot_base[col]
         final_data[(col, '증감량')] = pivot_diff[col]
-        final_data[(col, '증감률')] = pivot_pct[col]
+        final_data[(col, '증감률(%)')] = pivot_pct[col]
 
     pivot_final = pd.DataFrame(final_data, index=pivot_base.index)
 
-# 6. 표 출력
+# 6. HTML 기반 파란색/가운데 정렬/굵은 글씨 표 생성
 st.markdown(f"### 📋 {display_item_title} {title_country_str} {trade_type} 실적")
-st.caption(f"(단위 : 톤) | 구분: {selected_period_opt}")
+st.caption(f"(단위 : 톤) | 조회범위: {selected_desc}")
 
-def format_values(val, col_type):
-    if pd.isna(val):
-        return "-"
-    if col_type == '증감률':
-        return f"{val:,.1f}"
-    return f"{int(round(val)):,}"
+top_headers = []
+for col in pivot_final.columns:
+    if col[0] not in top_headers:
+        top_headers.append(col[0])
 
-def apply_styles(val):
-    if pd.isna(val):
-        return 'color: #888888;'
-    if isinstance(val, (int, float)) and val < 0:
-        return 'color: #d9534f; font-weight: bold;'
-    return 'color: #212529;'
+# HTML 테이블 조립
+html = ['<div class="custom-table-container"><table class="custom-table">']
 
-format_dict = {col: (lambda v, t=col[1]: format_values(v, t)) for col in pivot_final.columns}
-styled_table = pivot_final.style.format(format_dict).map(apply_styles)
+# 상단 1열 헤더
+html.append('<thead><tr>')
+index_header_name = "기준연도" if "연간" in period_type else "기준년월"
+html.append(f'<th rowspan="2" style="vertical-align: middle;">{index_header_name}</th>')
+for top_h in top_headers:
+    sub_count = sum(1 for c in pivot_final.columns if c[0] == top_h)
+    html.append(f'<th colspan="{sub_count}">{top_h}</th>')
+html.append('</tr>')
 
-st.dataframe(styled_table, use_container_width=True, height=450)
+# 하단 2열 헤더
+html.append('<tr>')
+for col in pivot_final.columns:
+    html.append(f'<th class="sub-th">{col[1]}</th>')
+html.append('</tr></thead><tbody>')
+
+# 데이터 행
+for idx, row in pivot_final.iterrows():
+    html.append('<tr>')
+    html.append(f'<td style="font-weight: 700; background-color: #F1F5F9;">{idx}</td>')
+    for col in pivot_final.columns:
+        val = row[col]
+        sub_type = col[1]
+        
+        if pd.isna(val):
+            display_val = "-"
+            css_class = "val-zero"
+        elif "증감률" in sub_type:
+            display_val = f"{val:,.1f}%"
+            css_class = "val-negative" if val < 0 else ""
+        else:
+            display_val = f"{int(round(val)):,}"
+            css_class = "val-negative" if val < 0 else ""
+            
+        html.append(f'<td class="{css_class}">{display_val}</td>')
+    html.append('</tr>')
+
+html.append('</tbody></table></div>')
+
+st.markdown("".join(html), unsafe_allow_html=True)
 st.caption("※ 자료출처 : 통계청")
 
 # 7. 차트 출력
