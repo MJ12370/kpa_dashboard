@@ -14,9 +14,9 @@ st.set_page_config(page_title="원료 수출입 통관실적", layout="wide")
 st.markdown("""
 <style>
 @media print {
+    /* 사이드바, 컨트롤 필터, 다운로드/인쇄 버튼 숨김 */
     [data-testid="stSidebar"], 
     header, 
-    .stPlotlyChart, 
     [data-testid="stRadio"], 
     [data-testid="stSelectbox"], 
     .stButton, 
@@ -25,10 +25,22 @@ st.markdown("""
     button {
         display: none !important;
     }
+    
+    /* 하단 차트 및 구분선 완전히 제거 */
+    .chart-section, 
+    .chart-section *, 
+    .stPlotlyChart, 
+    hr {
+        display: none !important;
+    }
+
+    /* 본문 인쇄 여백 최적화 */
     .block-container {
         padding: 0 !important;
+        margin: 0 !important;
     }
 }
+
 /* 표 커스텀 스타일 (단일 블루 통일) */
 .custom-table-container {
     width: 100%;
@@ -359,10 +371,10 @@ else:
 
     pivot_final = pd.DataFrame(final_data, index=pivot_base.index)
 
-# 6. 상단 제목 및 [엑셀 다운로드 / 인쇄 버튼]
+# 6. 상단 제목 및 [엑셀 다운로드 / 인쇄 버튼 정렬]
 st.markdown(f"### 📋 {display_item_title} {trade_type} 실적{title_country_str}")
 
-col_info, col_btn_excel, col_btn_print = st.columns([3, 1, 0.8])
+col_info, col_btn_excel, col_btn_print = st.columns([3.2, 1.1, 0.9])
 with col_info:
     st.caption(f"(단위 : 톤) | 조회범위: {selected_desc}")
 
@@ -381,25 +393,36 @@ with col_btn_excel:
         use_container_width=True
     )
 
-# iframe 내부에서 브라우저 최상단 창의 print를 호출하는 공식 컴포넌트 버튼
+# 높이와 마진을 엑셀 다운로드 버튼에 맞춘 인쇄 버튼
 with col_btn_print:
     components.html("""
-        <button onclick="window.parent.print()" style="
-            width: 100%;
-            height: 38px;
-            background-color: #FFFFFF;
-            color: #1E3A8A;
-            border: 1px solid #1E3A8A;
-            border-radius: 8px;
-            font-weight: 700;
-            font-size: 14px;
-            cursor: pointer;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            transition: all 0.2s ease;
-        " onmouseover="this.style.backgroundColor='#EFF6FF'" onmouseout="this.style.backgroundColor='#FFFFFF'">
+        <style>
+            body { margin: 0; padding: 0; }
+            .print-btn {
+                width: 100%;
+                height: 38px;
+                background-color: #FFFFFF;
+                color: #1E3A8A;
+                border: 1px solid #D1D5DB;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 14px;
+                cursor: pointer;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s ease;
+            }
+            .print-btn:hover {
+                background-color: #EFF6FF;
+                border-color: #1E3A8A;
+            }
+        </style>
+        <button class="print-btn" onclick="window.parent.print()">
             🖨️ 표 인쇄
         </button>
-    """, height=42)
+    """, height=40)
 
 # 7. 단일 블루 통일 HTML 표 조립
 top_headers = []
@@ -450,7 +473,8 @@ html.append('</tbody></table></div>')
 st.markdown("".join(html), unsafe_allow_html=True)
 st.caption("※ 자료출처 : 통계청")
 
-# 8. 차트 출력
+# 8. 차트 출력 (인쇄 시 완전히 숨겨지도록 chart-section 태그로 감쌈)
+st.markdown('<div class="chart-section">', unsafe_allow_html=True)
 st.write("---")
 st.markdown(f"### 📊 {display_item_title} 추이 차트{title_country_str}")
 
@@ -547,3 +571,5 @@ else:
             yaxis2=dict(title="증감량(톤)", overlaying='y', side='right', showgrid=False, tickformat=",.0f")
         )
         st.plotly_chart(fig_bar, use_container_width=True)
+
+st.markdown('</div>', unsafe_allow_html=True)
