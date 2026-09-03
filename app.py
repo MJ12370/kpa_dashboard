@@ -10,7 +10,7 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="제지산업 수출입 통관실적 대시보드", layout="wide")
 
-# 인쇄 및 공통 스타일
+# 인쇄 및 공통 스타일 (테두리 선 선명화 및 우측 여백 스타일 강화)
 st.markdown("""
 <style>
 @media print {
@@ -447,7 +447,6 @@ if main_menu == "원료":
 # 2. 종이판지 수출입 통관실적 대시보드
 # ==========================================
 else:
-    # 엑셀 파일 탐색 (새로 올린 파일 우선 인식)
     paper_files = (
         glob.glob(os.path.join(DATA_DIR, "*종이판지*통관실적*.xlsx")) +
         glob.glob(os.path.join(DATA_DIR, "*종이판지*수출입통계*.xlsx")) +
@@ -570,7 +569,6 @@ else:
     # 엑셀 보고서 수식과 100% 동일하게 연산하는 엔진
     # -------------------------------------------------------------
     def get_period_series(df_source, is_annual=False):
-        # 결과 딕셔너리: {item_code: {col: val}}
         all_items = df_source['지종'].unique().tolist()
         base_map = {it: {col: 0.0 for col in target_columns} for it in all_items}
 
@@ -612,7 +610,7 @@ else:
             for c in target_columns
         }
 
-        # 2. 판지 소계 및 판지합계 (Row 40: E25:E39 SUBTOTAL)
+        # 2. 판지 소계 및 판지합계
         calc_map['__CALC_백판지도공계__'] = sum_cols(['도공 카톤', '도공 SC', '도공 아이보리'])
         calc_map['__CALC_백판지비도공계__'] = sum_cols(['비도공 카톤', '비도공 TM'])
         calc_map['__CALC_백판지계__'] = {
@@ -626,13 +624,13 @@ else:
             for c in target_columns
         }
 
-        # 3. 종이합계 (Row 24: =E41 - E40 / 종이판지합계 - 판지합계)
+        # 3. 종이합계 (Row 24: 종이판지합계 - 판지합계)
         calc_map['__CALC_종이합계__'] = {
             c: calc_map.get('종이판지합계', {}).get(c, 0.0) - calc_map['__CALC_판지합계__'][c]
             for c in target_columns
         }
 
-        # 4. 특수지 기타 (Row 20: =E24 - E23 - E22 - E19 - E18 - E17 - E5)
+        # 4. 특수지 기타 (Row 20: 종이합계 - 타 종이 항목들)
         calc_map['__CALC_특수지기타__'] = {
             c: calc_map['__CALC_종이합계__'][c] - (
                 calc_map.get('중포대용크라프트지', {}).get(c, 0.0) +
@@ -645,19 +643,19 @@ else:
             for c in target_columns
         }
 
-        # 5. 기타특수지 계 (Row 21: =팬시지 + 권련지 + 기타)
+        # 5. 기타특수지 계 (Row 21: 팬시지 + 권련지 + 기타)
         calc_map['__CALC_특수지계__'] = {
             c: calc_map.get('팬시지', {}).get(c, 0.0) + calc_map.get('권련지', {}).get(c, 0.0) + calc_map['__CALC_특수지기타__'][c]
             for c in target_columns
         }
 
-        # 6. 지제품합계 (Row 47: =E48 - E41 / 총합계 - 종이판지합계)
+        # 6. 지제품합계 (Row 47: 총합계 - 종이판지합계)
         calc_map['__CALC_지제품합계__'] = {
             c: calc_map.get('총합계', {}).get(c, 0.0) - calc_map.get('종이판지합계', {}).get(c, 0.0)
             for c in target_columns
         }
 
-        # 7. 종이제품 기타 (Row 46: =E47 - E45 - E44 - E43 - E42)
+        # 7. 종이제품 기타 (Row 46: 지제품합계 - 타 지제품 항목들)
         calc_map['__CALC_지제품기타__'] = {
             c: calc_map['__CALC_지제품합계__'][c] - (
                 calc_map.get('카본지', {}).get(c, 0.0) +
@@ -690,15 +688,11 @@ else:
                 diff_v, rate_v = np.nan, np.nan
             else:
                 prev_v = series_v[i-1]
-                # 최신연도가 부분 누계인 경우 (예: 2026년 1~7월) -> 2025년 1~7월 동기간 수식 적용
                 if view_type == "연간" and c == last_y and is_partial_p:
                     prev_y_val = target_columns[i-1]
                     df_prev_same = df_monthly_all[(df_monthly_all['연도'] == prev_y_val) & (df_monthly_all['월'].isin(last_y_months))]
-                    
-                    # 전년 동기간 맵 계산
                     sub_prev_map = {it: df_prev_same[df_prev_same['지종'] == it]['중량(톤)'].sum() for it in df_prev_same['지종'].unique()}
                     
-                    # 동기 동일 수식 전개
                     if selected_code == '종이판지합계':
                         prev_y_same_v = sub_prev_map.get('종이판지합계', 0.0)
                     elif selected_code == '총합계':
@@ -812,7 +806,6 @@ else:
         with col_info:
             st.caption(f"(단위 : 톤) | 조회 범위: {desc_text}")
 
-        # 엑셀 다운로드
         excel_buffer = io.BytesIO()
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
             pivot_single.to_excel(writer, sheet_name=selected_label[:25])
@@ -841,7 +834,6 @@ else:
                 <button class="print-btn" onclick="window.parent.print()">🖨️ 표 인쇄</button>
             """, height=40)
 
-        # HTML 표 렌더링
         html = ['<div class="custom-table-container"><table class="custom-table">']
         html.append('<thead><tr>')
         html.append(f'<th rowspan="2" style="vertical-align: middle; width: 140px;">{idx_name}</th>')
@@ -879,7 +871,6 @@ else:
         st.markdown("".join(html), unsafe_allow_html=True)
         st.caption("※ 자료출처 : 관세청 통관통계")
 
-        # 단일 품목 추이 차트
         st.write("---")
         st.markdown(f'<div class="chart-box"><h3>📊 {selected_label} {paper_trade} 추이 차트</h3></div>', unsafe_allow_html=True)
         chart_x = pivot_single.index.astype(str)
@@ -897,11 +888,11 @@ else:
         st.plotly_chart(fig_single, use_container_width=True)
 
     # ----------------------------------------------------
-    # Case B. 전체 품목 모드 (종이판지 통관실적.xlsx와 완전 일치)
+    # Case B. 전체 품목 모드 (3단 통일로 열 밀림 100% 방지)
     # ----------------------------------------------------
     else:
         items_tree = [
-            # 1. 종이 영역
+            # 1. 종이 영역 (대분류, 중분류, 소분류 = 3칸 통일)
             ([('종이', 19, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('신문용지', 1, 2, 'text-align: center; width: 150px;')], '신문용지', ''),
             ([('비도공<br>인쇄용지', 3, 1, 'vertical-align: middle; width: 85px;'), ('백상지', 1, 1, 'width: 65px;')], '백상지', ''),
             ([('기타', 1, 1, '')], '비도공 기타', ''),
@@ -923,15 +914,15 @@ else:
             ([('중포대용크라프트지', 1, 2, 'text-align: center;')], '중포대용크라프트지', ''),
             ([('종이합계', 1, 3, 'text-align: center; font-weight: 800;')], '__CALC_종이합계__', 'row-total'),
 
-            # 2. 판지 영역
-            ([('판지', 16, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('백판지', 8, 1, 'vertical-align: middle; width: 45px;'), ('도공', 4, 1, 'vertical-align: middle; width: 40px;'), ('카톤용', 1, 1, 'width: 65px;')], '도공 카톤', ''),
+            # 2. 판지 영역 (대분류, 중분류, 세부품목 = 3칸 통일)
+            ([('판지', 16, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('백판지<br>(도공)', 4, 1, 'vertical-align: middle; width: 85px;'), ('카톤용', 1, 1, 'width: 65px;')], '도공 카톤', ''),
             ([('SC', 1, 1, '')], '도공 SC', ''),
             ([('아이보리', 1, 1, '')], '도공 아이보리', ''),
             ([('계', 1, 1, '')], '__CALC_백판지도공계__', 'row-subtotal'),
-            ([('비도공', 3, 1, 'vertical-align: middle; width: 40px;'), ('카톤용', 1, 1, '')], '비도공 카톤', ''),
+            ([('백판지<br>(비도공)', 3, 1, 'vertical-align: middle; width: 85px;'), ('카톤용', 1, 1, '')], '비도공 카톤', ''),
             ([('TM', 1, 1, '')], '비도공 TM', ''),
             ([('계', 1, 1, '')], '__CALC_백판지비도공계__', 'row-subtotal'),
-            ([('계', 1, 2, 'text-align: center;')], '__CALC_백판지계__', 'row-subtotal'),
+            ([('백판지 계', 1, 2, 'text-align: center;')], '__CALC_백판지계__', 'row-subtotal'),
             ([('골판지<br>원지', 3, 1, 'vertical-align: middle; width: 85px;'), ('라이너', 1, 1, '')], '라이너', ''),
             ([('골심지', 1, 1, '')], '골심지', ''),
             ([('계', 1, 1, '')], '__CALC_골판지원지계__', 'row-subtotal'),
@@ -944,7 +935,7 @@ else:
             # 3. 종이판지합계
             ([('종이판지합계', 1, 3, 'text-align: center; font-weight: 800;')], '종이판지합계', 'row-grand-total'),
 
-            # 4. 종이제품 영역
+            # 4. 종이제품 영역 (3칸 통일)
             ([('종이<br>제품', 5, 1, 'font-weight: 700; vertical-align: middle; width: 60px;'), ('골판상자', 1, 2, 'text-align: center;')], '골판상자', ''),
             ([('지대', 1, 2, 'text-align: center;')], '지대', ''),
             ([('감열기록지', 1, 2, 'text-align: center;')], '감열기록지(제품)', ''),
