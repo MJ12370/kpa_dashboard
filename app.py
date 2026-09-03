@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import os
 import glob
+import io
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -12,20 +13,26 @@ st.set_page_config(page_title="원료 수출입 통관실적", layout="wide")
 st.markdown("""
 <style>
 @media print {
-    [data-testid="stSidebar"], header, .stPlotlyChart, [data-testid="stRadio"], [data-testid="stSelectbox"] {
+    [data-testid="stSidebar"], 
+    header, 
+    .stPlotlyChart, 
+    [data-testid="stRadio"], 
+    [data-testid="stSelectbox"], 
+    .stButton, 
+    .stDownloadButton {
         display: none !important;
     }
     .block-container {
         padding: 0 !important;
     }
 }
-/* 표 커스텀 스타일 */
+/* 표 커스텀 스타일 (단일 블루 통일) */
 .custom-table-container {
     width: 100%;
     overflow-x: auto;
-    margin-bottom: 1rem;
-    border: 1px solid #d0d7de;
-    border-radius: 6px;
+    margin-bottom: 0.5rem;
+    border: 1px solid #1E3A8A;
+    border-radius: 4px;
 }
 .custom-table {
     width: 100%;
@@ -35,20 +42,15 @@ st.markdown("""
     text-align: center;
 }
 .custom-table th {
-    background-color: #1E3A8A;
+    background-color: #1E3A8A !important;
     color: #FFFFFF !important;
     font-weight: 700;
-    padding: 9px 8px;
-    border: 1px solid #3B82F6;
+    padding: 8px 6px;
+    border: 1px solid #2563EB;
     text-align: center !important;
 }
-.custom-table th.sub-th {
-    background-color: #2563EB;
-    font-weight: 600;
-    font-size: 12.5px;
-}
 .custom-table td {
-    padding: 8px 6px;
+    padding: 7px 6px;
     border: 1px solid #E5E7EB;
     font-weight: 600;
     color: #111827;
@@ -198,17 +200,19 @@ else:
 # 4. 데이터 필터링
 filtered_df = cat_df.copy()
 
+# '전체' 표기 제거: 세부 품목이 '전체'일 때는 대분류 명칭만 표기
 if chosen_sub_item != "전체":
     filtered_df = filtered_df[filtered_df['중분류'] == chosen_sub_item]
     display_item_title = chosen_sub_item
 else:
-    display_item_title = f"{selected_cat} 전체"
+    display_item_title = f"{selected_cat}"
 
+# 국가 표기: 전체 국가는 빈칸, 개별 국가는 (국가명)
 if selected_country != "전체 국가":
     filtered_df = filtered_df[filtered_df['국가명'] == selected_country]
-    title_country_str = f"[{selected_country}]"
+    title_country_str = f" ({selected_country})"
 else:
-    title_country_str = "[전체 국가]"
+    title_country_str = ""
 
 # 기간 필터 적용
 if "연간" in period_mode:
@@ -222,7 +226,7 @@ if filtered_df.empty:
     st.warning("선택된 기간 및 조건에 해당하는 데이터가 없습니다.")
     st.stop()
 
-# 5. 집계 및 증감 계산
+# 5. 피벗 및 연산
 valid_years = sorted([y for y in filtered_df['기준연도'].unique() if len(str(y)) == 4 and str(y).isdigit()])
 last_year = valid_years[-1]
 last_year_months = sorted([m for m in filtered_df[filtered_df['기준연도'] == last_year]['월'].unique() if 1 <= m <= 12])
@@ -263,27 +267,26 @@ if trade_type == "수출+수입" or chosen_sub_item != "전체":
         pivot_pct = pivot_base.pct_change() * 100.0
         date_index_col = '기준년월'
 
-    # 중복 제거: 하위 열을 '중량(톤)'으로 설정
     if trade_type == "수출":
         final_data = {
             ('수출', '중량(톤)'): pivot_base['수출실적(톤)'],
             ('수출', '증감량'): pivot_diff['수출실적(톤)'],
-            ('수출', '증감률'): pivot_pct['수출실적(톤)']
+            ('수출', '증감률(%)'): pivot_pct['수출실적(톤)']
         }
     elif trade_type == "수입":
         final_data = {
             ('수입', '중량(톤)'): pivot_base['수입실적(톤)'],
             ('수입', '증감량'): pivot_diff['수입실적(톤)'],
-            ('수입', '증감률'): pivot_pct['수입실적(톤)']
+            ('수입', '증감률(%)'): pivot_pct['수입실적(톤)']
         }
     else:
         final_data = {
             ('수출', '중량(톤)'): pivot_base['수출실적(톤)'],
             ('수출', '증감량'): pivot_diff['수출실적(톤)'],
-            ('수출', '증감률'): pivot_pct['수출실적(톤)'],
+            ('수출', '증감률(%)'): pivot_pct['수출실적(톤)'],
             ('수입', '중량(톤)'): pivot_base['수입실적(톤)'],
             ('수입', '증감량'): pivot_diff['수입실적(톤)'],
-            ('수입', '증감률'): pivot_pct['수입실적(톤)']
+            ('수입', '증감률(%)'): pivot_pct['수입실적(톤)']
         }
     pivot_final = pd.DataFrame(final_data, index=pivot_base.index)
 
@@ -350,26 +353,46 @@ else:
 
     final_data = {}
     for col in pivot_base.columns:
-        # 하위 열 이름을 '중량(톤)'으로 설정하여 헤더 중복 해결
         final_data[(col, '중량(톤)')] = pivot_base[col]
         final_data[(col, '증감량')] = pivot_diff[col]
         final_data[(col, '증감률(%)')] = pivot_pct[col]
 
     pivot_final = pd.DataFrame(final_data, index=pivot_base.index)
 
-# 6. HTML 기반 파란색/가운데 정렬/굵은 글씨 표 생성
-st.markdown(f"### 📋 {display_item_title} {title_country_str} {trade_type} 실적")
-st.caption(f"(단위 : 톤) | 조회범위: {selected_desc}")
+# 6. 상단 제목 및 [엑셀 다운로드 / 인쇄 버튼]
+st.markdown(f"### 📋 {display_item_title} {trade_type} 실적{title_country_str}")
 
+col_info, col_btn_excel, col_btn_print = st.columns([3, 1, 0.8])
+with col_info:
+    st.caption(f"(단위 : 톤) | 조회범위: {selected_desc}")
+
+# 엑셀 바이너리 생성
+excel_buffer = io.BytesIO()
+with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+    pivot_final.to_excel(writer, sheet_name="통관실적")
+excel_data = excel_buffer.getvalue()
+
+with col_btn_excel:
+    st.download_button(
+        label="📥 엑셀 다운로드",
+        data=excel_data,
+        file_name=f"{display_item_title}_{trade_type}_통관실적.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
+
+with col_btn_print:
+    st.button("🖨️ 표 인쇄", on_click=lambda: None, use_container_width=True)
+
+# 7. 단일 블루 통일 HTML 표 조립
 top_headers = []
 for col in pivot_final.columns:
     if col[0] not in top_headers:
         top_headers.append(col[0])
 
-# HTML 테이블 조립
 html = ['<div class="custom-table-container"><table class="custom-table">']
 
-# 상단 1열 헤더
+# 1열 상단 헤더
 html.append('<thead><tr>')
 index_header_name = "기준연도" if "연간" in period_type else "기준년월"
 html.append(f'<th rowspan="2" style="vertical-align: middle;">{index_header_name}</th>')
@@ -378,10 +401,10 @@ for top_h in top_headers:
     html.append(f'<th colspan="{sub_count}">{top_h}</th>')
 html.append('</tr>')
 
-# 하단 2열 헤더
+# 2열 서브 헤더
 html.append('<tr>')
 for col in pivot_final.columns:
-    html.append(f'<th class="sub-th">{col[1]}</th>')
+    html.append(f'<th>{col[1]}</th>')
 html.append('</tr></thead><tbody>')
 
 # 데이터 행
@@ -410,9 +433,9 @@ html.append('</tbody></table></div>')
 st.markdown("".join(html), unsafe_allow_html=True)
 st.caption("※ 자료출처 : 통계청")
 
-# 7. 차트 출력
+# 8. 차트 출력
 st.write("---")
-st.markdown(f"### 📊 {display_item_title} {title_country_str} 추이 차트")
+st.markdown(f"### 📊 {display_item_title} 추이 차트{title_country_str}")
 
 if trade_type == "수출+수입":
     if "월별" in period_type:
